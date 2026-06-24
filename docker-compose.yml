@@ -1,0 +1,24 @@
+services:
+  investment-decision-bot:
+    build: .
+    container_name: investment-decision-bot
+    restart: unless-stopped
+    environment:
+      DISCORD_TOKEN: ${DISCORD_TOKEN}
+      DISCORD_GUILD_ID: ${DISCORD_GUILD_ID}
+      DISCORD_CHANNEL_ID: ${DISCORD_CHANNEL_ID}
+      DATABASE_PROVIDER: Sqlite
+      DATABASE_PATH: /app/data/investment-decision-bot.db
+      TIME_ZONE: ${TIME_ZONE:-Asia/Tokyo}
+      REPORT_TIME: ${REPORT_TIME:-08:00}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_ENABLED: ${OPENAI_ENABLED:-false}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-mini}
+      NEWS_ENABLED: ${NEWS_ENABLED:-false}
+      FINANCIAL_DATA_ENABLED: ${FINANCIAL_DATA_ENABLED:-false}
+      MAX_REPORT_ITEMS: ${MAX_REPORT_ITEMS:-20}
+    volumes:
+      - bot-data:/app/data
+
+volumes:
+  bot-data:
