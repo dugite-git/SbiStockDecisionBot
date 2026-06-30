@@ -24,8 +24,8 @@ public sealed class WatchlistService(IBotDbContext db) : IWatchlistService
                 Symbol = symbol,
                 Name = symbol,
                 SecurityType = SecurityType.Stock,
-                Country = IsJapaneseSymbol(symbol) ? "JP" : null,
-                Currency = IsJapaneseSymbol(symbol) ? "JPY" : null
+                Country = IsJapaneseSymbol(symbol) ? "JP" : "US",
+                Currency = IsJapaneseSymbol(symbol) ? "JPY" : "USD"
             };
             db.Securities.Add(security);
         }
@@ -33,7 +33,7 @@ public sealed class WatchlistService(IBotDbContext db) : IWatchlistService
         var existing = await db.WatchlistItems.FirstOrDefaultAsync(w => w.SecurityId == security.Id && w.IsActive, cancellationToken);
         if (existing is not null)
         {
-            return new WatchlistMutationResult(true, $"{symbol} は既にWatchlistにあります。");
+            return new WatchlistMutationResult(true, $"{symbol} はすでにウォッチリストに登録されています。");
         }
 
         db.WatchlistItems.Add(new WatchlistItem
@@ -44,7 +44,7 @@ public sealed class WatchlistService(IBotDbContext db) : IWatchlistService
             AddedAt = DateTimeOffset.UtcNow
         });
         await db.SaveChangesAsync(cancellationToken);
-        return new WatchlistMutationResult(true, $"{symbol} をWatchlistに追加しました。");
+        return new WatchlistMutationResult(true, $"{symbol} をウォッチリストに追加しました。");
     }
 
     public async Task<WatchlistMutationResult> RemoveAsync(string symbol, CancellationToken cancellationToken)
@@ -56,14 +56,14 @@ public sealed class WatchlistService(IBotDbContext db) : IWatchlistService
 
         if (item is null)
         {
-            return new WatchlistMutationResult(false, $"{symbol} はWatchlistにありません。");
+            return new WatchlistMutationResult(false, $"{symbol} はウォッチリストに登録されていません。");
         }
 
         item.IsActive = false;
         item.RemovedAt = DateTimeOffset.UtcNow;
         item.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(cancellationToken);
-        return new WatchlistMutationResult(true, $"{symbol} をWatchlistから外しました。保有中の場合は分析対象に残ります。");
+        return new WatchlistMutationResult(true, $"{symbol} をウォッチリストから外しました。保有中の場合は分析対象として残ります。");
     }
 
     public async Task<IReadOnlyList<WatchlistItemDto>> ListAsync(CancellationToken cancellationToken)

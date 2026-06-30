@@ -11,6 +11,8 @@ public interface IBotDbContext
     DbSet<WatchlistItem> WatchlistItems { get; }
     DbSet<SoldEvent> SoldEvents { get; }
     DbSet<MarketPriceSnapshot> MarketPriceSnapshots { get; }
+    DbSet<ExternalApiCacheEntry> ExternalApiCacheEntries { get; }
+    DbSet<ExternalApiRequestLog> ExternalApiRequestLogs { get; }
     DbSet<NewsItem> NewsItems { get; }
     DbSet<AnalysisResult> AnalysisResults { get; }
     DbSet<DailyReport> DailyReports { get; }

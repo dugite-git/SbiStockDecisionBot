@@ -5,10 +5,28 @@ using InvestmentDecisionBot.Domain.Enums;
 
 namespace InvestmentDecisionBot.Infrastructure.Providers;
 
-public sealed class NullMarketDataProvider : IMarketDataProvider
+public sealed class NullMarketDataProvider : IMarketDataProvider, ICachedMarketDataProvider, IMarketDataPrefetchService
 {
     public Task<MarketPriceResult> GetLatestPriceAsync(Security security, CancellationToken cancellationToken) =>
-        Task.FromResult(new MarketPriceResult(null, security.Currency, true, true, "Market data provider is disabled."));
+        Task.FromResult(new MarketPriceResult(null, security.Currency, true, true, "市場データ取得Providerは無効です。"));
+
+    public Task<IReadOnlyList<DailyPriceBar>> GetCachedDailyPricesAsync(Security security, CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<DailyPriceBar>>(Array.Empty<DailyPriceBar>());
+
+    public Task<IReadOnlyList<NewsSentimentData>> GetCachedNewsAsync(Security security, CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<NewsSentimentData>>(Array.Empty<NewsSentimentData>());
+
+    public Task<decimal?> GetCachedExchangeRateAsync(string fromCurrency, string toCurrency, CancellationToken cancellationToken) =>
+        Task.FromResult<decimal?>(null);
+
+    public Task<MarketDataStatusResult> GetStatusAsync(CancellationToken cancellationToken) =>
+        Task.FromResult(new MarketDataStatusResult(0, 0, 0, 0, Array.Empty<string>()));
+
+    public Task<MarketDataPrefetchResult> PrefetchAsync(int? limit, CancellationToken cancellationToken) =>
+        Task.FromResult(new MarketDataPrefetchResult(limit ?? 0, 0, 0, 0, 0, 0, ["市場データ取得Providerは無効です。"]));
+
+    public Task<MarketDataCoverageResult> GetCoverageAsync(CancellationToken cancellationToken) =>
+        Task.FromResult(new MarketDataCoverageResult(0, 0, 0, 0, 0, 0, Array.Empty<MarketDataCoverageItem>()));
 }
 
 public sealed class NullNewsProvider : INewsProvider
@@ -32,7 +50,7 @@ public sealed class NullExchangeRateProvider : IExchangeRateProvider
 public sealed class DisabledAiAnalysisClient : IAiAnalysisClient
 {
     public Task<AiAnalysisResultDto> AnalyzeAsync(AiAnalysisRequestDto request, CancellationToken cancellationToken) =>
-        Task.FromResult(new AiAnalysisResultDto(false, null, null, 0m, "", Array.Empty<string>(), Array.Empty<string>(), null, "AI analysis is disabled or not configured."));
+        Task.FromResult(new AiAnalysisResultDto(false, null, null, 0m, "", Array.Empty<string>(), Array.Empty<string>(), null, "AI分析は無効、または未設定です。"));
 }
 
 public sealed class RuleOnlyDiscordPublisher : IDiscordReportPublisher

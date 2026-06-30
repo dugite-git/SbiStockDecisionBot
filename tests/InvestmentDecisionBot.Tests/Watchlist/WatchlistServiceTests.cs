@@ -24,6 +24,10 @@ public sealed class WatchlistServiceTests
         Assert.Equal("NVDA", list[0].Symbol);
         Assert.True(remove.Succeeded);
         Assert.Empty(await service.ListAsync(CancellationToken.None));
+
+        var security = await db.Context.Securities.SingleAsync(s => s.Symbol == "NVDA");
+        Assert.Equal("US", security.Country);
+        Assert.Equal("USD", security.Currency);
     }
 
     [Fact]

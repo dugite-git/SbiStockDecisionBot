@@ -19,6 +19,13 @@ public interface IReportService
     Task<ReportResult> GenerateDailyReportAsync(bool postToDiscord, CancellationToken cancellationToken);
 }
 
+public interface IMarketDataPrefetchService
+{
+    Task<MarketDataStatusResult> GetStatusAsync(CancellationToken cancellationToken);
+    Task<MarketDataPrefetchResult> PrefetchAsync(int? limit, CancellationToken cancellationToken);
+    Task<MarketDataCoverageResult> GetCoverageAsync(CancellationToken cancellationToken);
+}
+
 public interface IScoreCalculator
 {
     ScoreResult Calculate(AnalysisInput input);

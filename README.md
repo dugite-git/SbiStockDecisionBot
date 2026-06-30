@@ -1,8 +1,8 @@
-# SBI投資判断Discord Bot
+# SBI投資判断 Discord Bot
 
-個人利用向けの投資判断支援Discord Botです。SBI証券CSVから現在保有している個別株だけを同期し、Discordへ参考レポートを投稿します。
+SBI証券の保有銘柄CSVと手動登録したウォッチリストをもとに、投資判断の参考レポートをDiscordへ出力する個人利用向けBotです。
 
-このBotは自動売買Botではありません。SBI証券へのログイン、注文発行、証券口座操作、取引暗証番号やパスワード保存は実装していません。資産管理Botでもないため、現金残高、投資信託、NISA枠、配当、税金、総資産推移などは扱いません。
+このBotは自動売買Botではありません。SBI証券へのログイン、注文送信、信用取引、口座操作、パスワード保存は行いません。出力は投資判断の補助情報であり、最終判断は利用者本人が行う前提です。
 
 ## 技術スタック
 
@@ -11,41 +11,20 @@
 - Entity Framework Core
 - SQLite
 - Docker Compose
+- Alpha Vantage
 
 ## セットアップ
 
-Discord Developer PortalでBotを作成し、対象guildに招待してください。必要な設定値は `.env` または環境変数で指定します。
-
-主な設定項目:
-
-```text
-DISCORD_TOKEN=...
-DISCORD_GUILD_ID=...
-DISCORD_CHANNEL_ID=...
-DATABASE_PROVIDER=Sqlite
-DATABASE_PATH=data/investment-decision-bot.db
-TIME_ZONE=Asia/Tokyo
-REPORT_TIME=08:00
-OPENAI_API_KEY=
-OPENAI_ENABLED=false
-OPENAI_MODEL=gpt-4.1-mini
-NEWS_ENABLED=false
-FINANCIAL_DATA_ENABLED=false
-MAX_REPORT_ITEMS=20
-```
-
-## .envの設定手順
-
-ローカル実行では、Workerが `.env` と `.env.local` を自動で読み込みます。まずサンプルファイルをコピーして、Discord Botの設定値などを入力してください。
+`.env.example` をコピーして `.env` を作成し、Discord Botや外部APIの設定を入力します。
 
 ```powershell
 Copy-Item .env.example .env
 notepad .env
 ```
 
-`.env` の例:
+主な設定項目:
 
-```text
+```env
 DISCORD_TOKEN=your_discord_bot_token
 DISCORD_GUILD_ID=123456789012345678
 DISCORD_CHANNEL_ID=123456789012345678
@@ -59,9 +38,16 @@ REPORT_TIME=08:00
 OPENAI_ENABLED=false
 OPENAI_API_KEY=
 OPENAI_MODEL=gpt-4.1-mini
+
+MARKET_DATA_ENABLED=false
+MARKET_DATA_PROVIDER=
+ALPHAVANTAGE_API_KEY=
+ALPHAVANTAGE_FETCH_ON_REPORT=false
+ALPHAVANTAGE_DAILY_REQUEST_LIMIT=25
+ALPHAVANTAGE_MIN_REQUEST_INTERVAL_MS=1000
 ```
 
-個人環境だけで上書きしたい値は `.env.local` に書けます。`.env` と `.env.local` はgit管理対象外です。実際のtokenやAPIキーはコミットしないでください。
+`ALPHAVANTAGE_MIN_REQUEST_INTERVAL_MS=1000` により、Alpha VantageへのHTTPリクエスト開始間隔を最低1秒空けます。無料キーの秒間バースト制限に合わせるため、`/marketdata prefetch` でも連続取得は1秒に1件ずつ進みます。
 
 設定の読み込み優先順位は次の通りです。下にあるものほど優先されます。
 
@@ -71,66 +57,150 @@ OPENAI_MODEL=gpt-4.1-mini
 4. `.env.local`
 5. OS環境変数
 
-## ローカル実行
+`.env` と `.env.local` はGit管理対象外です。実際のDiscord tokenやAPI keyはコミットしないでください。
 
-SQLiteを使って通常起動する場合:
+## ローカル実行
 
 ```powershell
 dotnet tool restore
 dotnet run --project src/InvestmentDecisionBot.Worker
 ```
 
-DockerやSQLiteファイルを使わずにデバッグする場合は、Development設定のまま起動します。`appsettings.Development.json` では `DATABASE_PROVIDER=InMemory` が設定されているため、プロセス終了時にDB内容は消えます。
+開発用にインメモリDBで起動する場合:
 
 ```powershell
 $env:DOTNET_ENVIRONMENT="Development"
 dotnet run --project src/InvestmentDecisionBot.Worker
 ```
 
-`.env` で明示的にInMemory DBへ切り替える場合:
+`.env` で明示的にインメモリDBを使う場合:
 
-```text
+```env
 DATABASE_PROVIDER=InMemory
 INMEMORY_DATABASE_NAME=investment-decision-bot-debug
 ```
 
-一時的にPowerShellの環境変数で切り替える場合:
-
-```powershell
-$env:DATABASE_PROVIDER="InMemory"
-$env:INMEMORY_DATABASE_NAME="investment-decision-bot-debug"
-dotnet run --project src/InvestmentDecisionBot.Worker
-```
-
 ## Docker Compose
-
-Docker Composeはリポジトリ直下の `.env` を自動で読みます。`.env.example` を `.env` にコピーして値を入れたあと、次のコマンドで起動します。
 
 ```powershell
 docker compose up --build -d
 ```
 
-Docker環境では `DATABASE_PROVIDER=Sqlite` を使い、SQLite DBはDocker volume `bot-data` に保存されます。
+Docker環境では通常 `DATABASE_PROVIDER=Sqlite` を使い、SQLite DBはDocker volume `bot-data` に保存されます。
 
-## Slash Command
+## Slash Commands
 
-- `/import file:<csv>`: SBI CSVから株式保有一覧を同期します。
-- `/watch add symbol:<symbol>`: Watchlistへ手動追加します。
-- `/watch remove symbol:<symbol>`: Watchlistから外します。保有中銘柄は分析対象に残ります。
-- `/watch list`: Watchlistを表示します。
-- `/report`: 即時レポートを生成します。
+- `/import file:<csv>`  
+  SBI証券CSVを取り込み、保有銘柄を同期します。売却済みになった銘柄は検出し、必要に応じてウォッチリストへ追加します。
 
-## CSV取り込み
+- `/watch add symbol:<symbol>`  
+  銘柄をウォッチリストへ追加します。
 
-MVPでは株式セクションだけを取り込みます。投資信託、合計行、資産額、NISA枠などは保存しません。対応する主な列は、銘柄コード、銘柄名称、保有株数、売却注文中、取得単価、現在値、取得金額、評価額、評価損益です。
+- `/watch remove symbol:<symbol>`  
+  銘柄をウォッチリストから外します。保有中の銘柄はレポート対象として残ります。
 
-CSVはUTF-8 BOM、UTF-8、CP932/Shift_JISを読みます。CSV異常時はDBを更新せず、Discordにエラーを返します。
+- `/watch list`  
+  現在のウォッチリストを表示します。
+
+- `/report`  
+  投資判断レポートを即時生成します。デフォルトではAlpha Vantageへ新規リクエストを送らず、保存済みキャッシュとSBI CSV由来データを使って計算します。
+
+- `/marketdata status`  
+  Alpha Vantageの当日リクエスト使用数、残り件数、未取得キュー、次に取得される候補を表示します。
+
+- `/marketdata coverage`  
+  監視対象のうちAlpha Vantageでシンボル解決できている銘柄数と、価格・日足・ニュース・為替キャッシュの取得状況を表示します。
+
+- `/marketdata prefetch`  
+  Alpha Vantage無料枠の残り件数内で、未取得データを順番に取得してキャッシュします。レポート投稿は行いません。
+
+- `/marketdata prefetch limit:<n>`  
+  最大 `n` 件まで取得を試みます。ただし実際の取得数は `ALPHAVANTAGE_DAILY_REQUEST_LIMIT` の残り件数を超えません。
+
+## Alpha Vantage運用
+
+Alpha Vantage無料版はリクエスト数が限られるため、このBotはキャッシュ優先・バッチ取得型で動作します。
+
+有効化する設定:
+
+```env
+MARKET_DATA_ENABLED=true
+MARKET_DATA_PROVIDER=AlphaVantage
+ALPHAVANTAGE_API_KEY=your_api_key
+ALPHAVANTAGE_FETCH_ON_REPORT=false
+ALPHAVANTAGE_DAILY_REQUEST_LIMIT=25
+ALPHAVANTAGE_MIN_REQUEST_INTERVAL_MS=1000
+```
+
+推奨運用:
+
+1. `/import` でSBI CSVを取り込む
+2. 必要な銘柄を `/watch add` で追加する
+3. `/marketdata status` で未取得件数を確認する
+4. `/marketdata coverage` で銘柄ごとのカバレッジを確認する
+5. `/marketdata prefetch` で少しずつデータをキャッシュする
+6. `/report` でキャッシュ済みデータを使ったレポートを生成する
+
+`ALPHAVANTAGE_FETCH_ON_REPORT=false` がデフォルトです。これにより、朝の自動レポートや手動 `/report` が無料枠を一気に使い切ることを防ぎます。
+
+## 取得対象とキャッシュ
+
+Alpha Vantageから取得する主なデータ:
+
+- `SYMBOL_RESOLVE`: 日本株4桁コードは `.T`、米国株ティッカーはそのままAlpha Vantage用シンボルへ解決
+- `GLOBAL_QUOTE`: 最新価格
+- `TIME_SERIES_DAILY`: 日足OHLCV
+- `NEWS_SENTIMENT`: ニュース感情
+- `CURRENCY_EXCHANGE_RATE`: 為替
+
+キャッシュTTLの初期値:
+
+| API | TTL |
+| --- | --- |
+| `SYMBOL_RESOLVE` | APIリクエストなし |
+| `GLOBAL_QUOTE` | 当日中 |
+| `TIME_SERIES_DAILY` | 1日 |
+| `NEWS_SENTIMENT` | 6時間 |
+| `CURRENCY_EXCHANGE_RATE` | 1日 |
+| 財務系API | 7日 |
+
+取得キューの優先順位:
+
+1. 未解決の `SYMBOL_RESOLVE`
+2. 保有銘柄の `GLOBAL_QUOTE`
+3. 保有銘柄の `TIME_SERIES_DAILY`
+4. ウォッチリスト銘柄の `GLOBAL_QUOTE`
+5. ウォッチリスト銘柄の `TIME_SERIES_DAILY`
+6. `NEWS_SENTIMENT`
+7. 財務系API
 
 ## スコアリング
 
-一次判断はBot内ルールで行います。OpenAI分析は `OPENAI_ENABLED=true` と `OPENAI_API_KEY` がある場合だけ補助説明用に実行され、最終DecisionはBot側スコアリングを優先します。
+総合スコアは次の重みで計算します。
 
-外部市場データ、ニュース、財務データProviderはMVPではNull実装で、データ不足時は中立スコアを使います。
+```text
+TotalScore =
+  FundamentalScore * 0.40
++ QualityScore     * 0.20
++ MomentumScore    * 0.20
++ NewsScore        * 0.10
++ PositionRiskScore * 0.10
+```
+
+現在の実装では第1段階として以下を実装済みです。
+
+- `MomentumScore`: 日足からリターン、SMA、RSI、MACD、出来高を評価
+- `PositionRiskScore`: 含み損益、集中度、ボラティリティ、流動性、為替リスクを評価
+- `NewsScore`: Alpha Vantage `NEWS_SENTIMENT` がある場合に感情と関連度を評価
+- `FundamentalScore` / `QualityScore`: 財務系キャッシュが不足している場合は中立値を低confidenceで使用
+
+データ不足時は極端な評価にならないよう、以下の補正式を使います。
+
+```text
+AdjustedScore = RawScore * Confidence + 50 * (1 - Confidence)
+```
+
+詳しくは [doc/scoring.md](doc/scoring.md) と [doc/external-data-scoring.md](doc/external-data-scoring.md) を参照してください。
 
 ## 開発
 
@@ -140,4 +210,11 @@ dotnet test
 dotnet tool run dotnet-ef migrations add <Name> --project src/InvestmentDecisionBot.Infrastructure --startup-project src/InvestmentDecisionBot.Worker --context BotDbContext --output-dir Persistence/Migrations
 ```
 
-現在のテスト範囲はCSV parser、import、watchlist、scoring、reportです。
+現在の主なテスト範囲:
+
+- CSV parser
+- Import
+- Watchlist
+- Scoring
+- Report
+- Alpha Vantage provider/cache

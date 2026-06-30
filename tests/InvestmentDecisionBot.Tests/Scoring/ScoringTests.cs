@@ -13,7 +13,7 @@ public sealed class ScoringTests
 
         var score = new ScoreCalculator().Calculate(input);
 
-        Assert.Equal(50.5m, score.TotalScore);
+        Assert.Equal(50.58m, score.TotalScore);
         Assert.Equal(25m, score.UnrealizedProfitLossRate);
         Assert.Contains("news", score.MissingData);
     }

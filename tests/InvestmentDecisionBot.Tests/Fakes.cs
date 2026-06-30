@@ -1,5 +1,6 @@
 using InvestmentDecisionBot.Application.Abstractions;
 using InvestmentDecisionBot.Application.DTOs;
+using InvestmentDecisionBot.Domain.Entities;
 
 namespace InvestmentDecisionBot.Tests;
 
@@ -28,4 +29,26 @@ internal sealed class FakeAiAnalysisClient(bool succeeds) : IAiAnalysisClient
         Task.FromResult(succeeds
             ? new AiAnalysisResultDto(true, request.BotDecision.Decision, request.BotDecision.SellReasonType, 0.7m, "補足情報です。", [], [], "{\"ok\":true}", null)
             : new AiAnalysisResultDto(false, null, null, 0m, "", [], [], null, "disabled"));
+}
+
+internal sealed class FakeMarketDataProvider(decimal? price = null, bool usedFallback = false) : IMarketDataProvider, ICachedMarketDataProvider
+{
+    public int CallCount { get; private set; }
+    public IReadOnlyList<DailyPriceBar> DailyPrices { get; init; } = Array.Empty<DailyPriceBar>();
+    public IReadOnlyList<NewsSentimentData> News { get; init; } = Array.Empty<NewsSentimentData>();
+
+    public Task<MarketPriceResult> GetLatestPriceAsync(Security security, CancellationToken cancellationToken)
+    {
+        CallCount++;
+        return Task.FromResult(new MarketPriceResult(price, security.Currency, usedFallback || price is null, price is null, price is null ? "missing" : null));
+    }
+
+    public Task<IReadOnlyList<DailyPriceBar>> GetCachedDailyPricesAsync(Security security, CancellationToken cancellationToken) =>
+        Task.FromResult(DailyPrices);
+
+    public Task<IReadOnlyList<NewsSentimentData>> GetCachedNewsAsync(Security security, CancellationToken cancellationToken) =>
+        Task.FromResult(News);
+
+    public Task<decimal?> GetCachedExchangeRateAsync(string fromCurrency, string toCurrency, CancellationToken cancellationToken) =>
+        Task.FromResult<decimal?>(null);
 }

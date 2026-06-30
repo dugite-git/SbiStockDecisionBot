@@ -40,6 +40,9 @@ ScaffoldingReadMe.txt
 .env
 .env.local
 
+# Local data
+data/
+
 # Others
 ~$*
 *~

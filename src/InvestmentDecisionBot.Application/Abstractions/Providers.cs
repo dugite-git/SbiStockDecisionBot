@@ -8,6 +8,13 @@ public interface IMarketDataProvider
     Task<MarketPriceResult> GetLatestPriceAsync(Security security, CancellationToken cancellationToken);
 }
 
+public interface ICachedMarketDataProvider
+{
+    Task<IReadOnlyList<DailyPriceBar>> GetCachedDailyPricesAsync(Security security, CancellationToken cancellationToken);
+    Task<IReadOnlyList<NewsSentimentData>> GetCachedNewsAsync(Security security, CancellationToken cancellationToken);
+    Task<decimal?> GetCachedExchangeRateAsync(string fromCurrency, string toCurrency, CancellationToken cancellationToken);
+}
+
 public interface INewsProvider
 {
     Task<IReadOnlyList<NewsItem>> GetNewsAsync(Security security, CancellationToken cancellationToken);
