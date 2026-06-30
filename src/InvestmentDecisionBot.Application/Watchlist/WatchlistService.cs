@@ -82,6 +82,53 @@ public sealed class WatchlistService(IBotDbContext db) : IWatchlistService
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<WatchTargetDto>> ListTargetsAsync(CancellationToken cancellationToken)
+    {
+        var activeHoldingSecurityIds = await db.Holdings
+            .Where(holding => holding.IsActive)
+            .Select(holding => holding.SecurityId)
+            .ToListAsync(cancellationToken);
+        var holdingIds = activeHoldingSecurityIds.ToHashSet();
+
+        var activeWatchlistItems = await db.WatchlistItems
+            .Where(item => item.IsActive)
+            .Select(item => new { item.SecurityId, item.Source })
+            .ToListAsync(cancellationToken);
+        var watchlistSources = activeWatchlistItems
+            .GroupBy(item => item.SecurityId)
+            .ToDictionary(group => group.Key, group => group.First().Source);
+
+        var targetIds = holdingIds
+            .Concat(watchlistSources.Keys)
+            .Distinct()
+            .ToList();
+
+        if (targetIds.Count == 0)
+        {
+            return [];
+        }
+
+        var securities = await db.Securities
+            .Where(security => targetIds.Contains(security.Id))
+            .OrderBy(security => security.Symbol)
+            .ToListAsync(cancellationToken);
+
+        return securities
+            .Select(security => new WatchTargetDto(
+                security.Symbol,
+                security.Name,
+                security.SecurityType.ToString(),
+                security.Market,
+                security.Country,
+                security.Currency,
+                security.ExternalSymbol,
+                security.ExternalSymbolResolutionError,
+                holdingIds.Contains(security.Id),
+                watchlistSources.ContainsKey(security.Id),
+                watchlistSources.ContainsKey(security.Id) ? watchlistSources[security.Id] : null))
+            .ToList();
+    }
+
     private static string NormalizeSymbol(string symbol) => symbol.Trim().ToUpperInvariant();
 
     private static bool IsJapaneseSymbol(string symbol) => symbol.Length == 4 && symbol.All(char.IsDigit);

@@ -47,7 +47,9 @@ public sealed record NewsSentimentData(
     DateTimeOffset? PublishedAt,
     decimal SentimentScore,
     decimal RelevanceScore,
-    string? Summary);
+    string? Summary,
+    string? Source = null,
+    DateTimeOffset? FetchedAt = null);
 
 public sealed record FinancialSnapshotData(
     DateOnly? DisclosureDate,
@@ -78,7 +80,8 @@ public sealed record MarketDataRequestLogItem(
     string Function,
     string CacheKey,
     bool Succeeded,
-    string? ErrorMessage);
+    string? ErrorMessage,
+    bool IsCacheHit = false);
 
 public sealed record MarketDataCoverageResult(
     int TargetCount,
@@ -103,6 +106,26 @@ public sealed record MarketDataCoverageItem(
     DateTimeOffset? DailyFetchedAt,
     DateTimeOffset? NewsFetchedAt,
     string? ResolutionError);
+
+public sealed record MarketDataDetailResult(
+    bool Found,
+    string Symbol,
+    string? Name,
+    IReadOnlyList<DailyPriceBar> DailyPrices,
+    FinancialSnapshotData? FinancialSnapshot,
+    IReadOnlyList<NewsSentimentData> News,
+    IReadOnlyList<ExternalApiCacheSummary> CacheEntries,
+    string? Message);
+
+public sealed record ExternalApiCacheSummary(
+    string Provider,
+    string Function,
+    string CacheKey,
+    DateTimeOffset FetchedAt,
+    DateTimeOffset ExpiresAt,
+    bool Succeeded,
+    string? ErrorMessage,
+    int PayloadLength);
 
 public sealed record DecisionResult(BotDecision Decision, SellReasonType SellReasonType, string Reason, decimal Confidence);
 

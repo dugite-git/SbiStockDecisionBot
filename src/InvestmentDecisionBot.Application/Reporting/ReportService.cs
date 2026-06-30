@@ -132,8 +132,17 @@ public sealed class ReportService(
         var dailyPrices = await cachedMarketData.GetCachedDailyPricesAsync(holding.Security, cancellationToken);
         var news = await cachedMarketData.GetCachedNewsAsync(holding.Security, cancellationToken);
         var financial = await financialData.GetFinancialDataAsync(holding.Security, cancellationToken);
+        var cacheWarnings = new List<string>();
         if (dailyPrices.Count == 0) missingData.Add("daily");
-        if (news.Count == 0) missingData.Add("news");
+        if (news.Count == 0 && !await HasSuccessfulNewsFetchAsync(holding.Security, cancellationToken))
+        {
+            missingData.Add("news");
+        }
+        else if (news.Count == 0)
+        {
+            cacheWarnings.Add("ニュース取得は成功しましたが、該当記事が0件だったためNewsScoreは中立値で評価しています。");
+        }
+
         if (!financial.HasData) missingData.Add("financial");
 
         return new AnalysisInput(
@@ -151,7 +160,8 @@ public sealed class ReportService(
             news,
             financial.Snapshot,
             totalPortfolioMarketValue,
-            holding.Security.Currency);
+            holding.Security.Currency,
+            cacheWarnings);
     }
 
     private async Task<AnalysisInput> BuildWatchlistInputAsync(WatchlistItem item, CancellationToken cancellationToken)
@@ -166,8 +176,17 @@ public sealed class ReportService(
         var dailyPrices = await cachedMarketData.GetCachedDailyPricesAsync(item.Security, cancellationToken);
         var news = await cachedMarketData.GetCachedNewsAsync(item.Security, cancellationToken);
         var financial = await financialData.GetFinancialDataAsync(item.Security, cancellationToken);
+        var cacheWarnings = new List<string>();
         if (dailyPrices.Count == 0) missingData.Add("daily");
-        if (news.Count == 0) missingData.Add("news");
+        if (news.Count == 0 && !await HasSuccessfulNewsFetchAsync(item.Security, cancellationToken))
+        {
+            missingData.Add("news");
+        }
+        else if (news.Count == 0)
+        {
+            cacheWarnings.Add("ニュース取得は成功しましたが、該当記事が0件だったためNewsScoreは中立値で評価しています。");
+        }
+
         if (!financial.HasData) missingData.Add("financial");
 
         return new AnalysisInput(
@@ -185,8 +204,17 @@ public sealed class ReportService(
             news,
             financial.Snapshot,
             null,
-            item.Security.Currency);
+            item.Security.Currency,
+            cacheWarnings);
     }
+
+    private async Task<bool> HasSuccessfulNewsFetchAsync(Security security, CancellationToken cancellationToken) =>
+        await db.ExternalApiCacheEntries.AnyAsync(cache =>
+            cache.Provider == "Gdelt" &&
+            cache.Function == "ArticleList" &&
+            cache.CacheKey == security.Symbol &&
+            cache.Succeeded,
+            cancellationToken);
 
     private async Task<MarketPriceResult> FetchLatestPriceAsync(Security security, CancellationToken cancellationToken)
     {
@@ -277,11 +305,16 @@ public sealed class ReportService(
         lines.AppendLine($"- {entry.Input.Symbol} {entry.Input.Name}: {entry.Decision.Decision} / スコア {entry.Score.TotalScore:0.##} / 含み損益率 {rate}");
         lines.AppendLine($"  理由: {entry.Decision.Reason}");
 
+        lines.AppendLine($"  SubScores: {FormatSubScores(entry.Score)}");
+
         foreach (var warning in (entry.Score.Warnings ?? Array.Empty<string>()).Take(3))
         {
             lines.AppendLine($"  警告: {warning}");
         }
     }
+
+    private static string FormatSubScores(ScoreResult score) =>
+        $"F {score.FundamentalScore:0.##}, Q {score.QualityScore:0.##}, M {score.MomentumScore:0.##}, N {score.NewsScore:0.##}, R {score.PositionRiskScore:0.##}";
 
     private static string BuildReason(DecisionResult decision, ScoreResult score)
     {

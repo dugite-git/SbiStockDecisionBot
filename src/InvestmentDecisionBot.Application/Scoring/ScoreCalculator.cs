@@ -32,6 +32,10 @@ public sealed class ScoreCalculator : IScoreCalculator
         Add(momentum, reasons, warnings);
         Add(news, reasons, warnings);
         Add(positionRisk, reasons, warnings);
+        if (input.CacheWarnings is not null)
+        {
+            warnings.AddRange(input.CacheWarnings);
+        }
 
         var total =
             fundamental.AdjustedScore * 0.40m +
@@ -179,8 +183,13 @@ public sealed class ScoreCalculator : IScoreCalculator
         var news = (input.News ?? Array.Empty<NewsSentimentData>()).ToList();
         if (news.Count == 0)
         {
-            AddMissing(missingData, "news");
-            return Breakdown(50m, 0.10m, [], ["外部ニュースキャッシュがないため、ニュースは中立値で評価しています。"]);
+            var fetchedButEmpty = input.CacheWarnings?.Any(warning => warning.Contains("該当記事が0件", StringComparison.OrdinalIgnoreCase)) == true;
+            if (!fetchedButEmpty)
+            {
+                AddMissing(missingData, "news");
+            }
+
+            return Breakdown(50m, 0.10m, [], fetchedButEmpty ? [] : ["外部ニュースキャッシュがないため、ニュースは中立値で評価しています。"]);
         }
 
         var weighted = news.Select(item =>

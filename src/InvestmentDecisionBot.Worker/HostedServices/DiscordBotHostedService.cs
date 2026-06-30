@@ -77,6 +77,10 @@ public sealed class DiscordBotHostedService(
             .AddOption(new SlashCommandOptionBuilder()
                 .WithName("list")
                 .WithDescription("ウォッチリストを表示します")
+                .WithType(ApplicationCommandOptionType.SubCommand))
+            .AddOption(new SlashCommandOptionBuilder()
+                .WithName("targets")
+                .WithDescription("監視対象に入っている銘柄情報を表示します")
                 .WithType(ApplicationCommandOptionType.SubCommand));
 
         var report = new SlashCommandBuilder()
@@ -94,6 +98,17 @@ public sealed class DiscordBotHostedService(
                 .WithName("coverage")
                 .WithDescription("監視対象銘柄の市場データカバレッジを表示します")
                 .WithType(ApplicationCommandOptionType.SubCommand))
+            .AddOption(new SlashCommandOptionBuilder()
+                .WithName("data")
+                .WithDescription("APIから取得済みのデータを銘柄別に表示します")
+                .WithType(ApplicationCommandOptionType.SubCommand)
+                .AddOption("symbol", ApplicationCommandOptionType.String, "4桁の銘柄コード", isRequired: true))
+            .AddOption(new SlashCommandOptionBuilder()
+                .WithName("articles")
+                .WithDescription("APIから取得済みの記事データを銘柄別に表示します")
+                .WithType(ApplicationCommandOptionType.SubCommand)
+                .AddOption("symbol", ApplicationCommandOptionType.String, "4桁の銘柄コード", isRequired: true)
+                .AddOption("limit", ApplicationCommandOptionType.Integer, "表示する記事数", isRequired: false))
             .AddOption(new SlashCommandOptionBuilder()
                 .WithName("prefetch")
                 .WithDescription("設定上限の範囲で未取得データを取得します")
@@ -197,6 +212,22 @@ public sealed class DiscordBotHostedService(
             return;
         }
 
+        if (sub.Name == "targets")
+        {
+            var targets = await service.ListTargetsAsync(CancellationToken.None);
+            var embed = new EmbedBuilder()
+                .WithTitle("監視対象銘柄")
+                .WithDescription(Truncate(FormatWatchTargets(targets), EmbedDescriptionLimit))
+                .WithColor(Color.Blue)
+                .AddField("対象数", targets.Count, true)
+                .AddField("保有", targets.Count(target => target.IsHolding), true)
+                .AddField("ウォッチ", targets.Count(target => target.IsWatchlisted), true)
+                .WithCurrentTimestamp()
+                .Build();
+            await command.RespondAsync(embed: embed);
+            return;
+        }
+
         var symbol = sub.Options.First(o => o.Name == "symbol").Value.ToString() ?? "";
         var result = sub.Name == "add"
             ? await service.AddAsync(symbol, CancellationToken.None)
@@ -293,6 +324,60 @@ public sealed class DiscordBotHostedService(
             return;
         }
 
+        if (sub.Name == "data")
+        {
+            var symbol = sub.Options.First(option => option.Name == "symbol").Value.ToString() ?? "";
+            var detail = await service.GetDetailAsync(symbol, CancellationToken.None);
+            if (!detail.Found)
+            {
+                await UpdateDeferredResponseAsync(command, BuildEmbed("API取得データ", detail.Message ?? "銘柄が見つかりません。", Color.Orange));
+                return;
+            }
+
+            var latestPrices = detail.DailyPrices.Count == 0
+                ? "なし"
+                : string.Join("\n", detail.DailyPrices
+                    .OrderByDescending(price => price.Date)
+                    .Take(5)
+                    .Select(price => $"- `{price.Date:yyyy-MM-dd}` 終値 {price.Close:N2} / 出来高 {price.Volume:N0}"));
+            var embed = new EmbedBuilder()
+                .WithTitle($"API取得データ: {detail.Symbol} {detail.Name}")
+                .WithColor(Color.Teal)
+                .AddField("日足", Truncate(latestPrices, EmbedFieldLimit), false)
+                .AddField("財務", Truncate(FormatFinancialSnapshot(detail.FinancialSnapshot, detail.Message), EmbedFieldLimit), false)
+                .AddField("ニュース", Truncate(FormatNews(detail.News), EmbedFieldLimit), false)
+                .AddField("APIキャッシュ", Truncate(FormatCacheEntries(detail.CacheEntries), EmbedFieldLimit), false)
+                .WithCurrentTimestamp()
+                .Build();
+            await UpdateDeferredResponseAsync(command, embed);
+            return;
+        }
+
+        if (sub.Name == "articles")
+        {
+            var symbol = sub.Options.First(option => option.Name == "symbol").Value.ToString() ?? "";
+            var articleLimitValue = sub.Options.FirstOrDefault(option => option.Name == "limit")?.Value;
+            var articleLimit = articleLimitValue is long articleLongValue ? (int)Math.Clamp(articleLongValue, 1, 20) : 10;
+            var detail = await service.GetDetailAsync(symbol, CancellationToken.None);
+            if (!detail.Found)
+            {
+                await UpdateDeferredResponseAsync(command, BuildEmbed("API取得記事", detail.Message ?? "銘柄が見つかりません。", Color.Orange));
+                return;
+            }
+
+            var articleCount = detail.News.Count;
+            var embed = new EmbedBuilder()
+                .WithTitle($"API取得記事: {detail.Symbol} {detail.Name}")
+                .WithColor(articleCount > 0 ? Color.Teal : Color.Orange)
+                .AddField("記事数", articleCount, true)
+                .AddField("表示件数", Math.Min(articleCount, articleLimit), true)
+                .AddField("記事", Truncate(FormatArticles(detail.News, articleLimit), EmbedFieldLimit), false)
+                .WithCurrentTimestamp()
+                .Build();
+            await UpdateDeferredResponseAsync(command, embed);
+            return;
+        }
+
         var limitValue = sub.Options.FirstOrDefault(option => option.Name == "limit")?.Value;
         var limit = limitValue is long longValue ? (int?)Math.Clamp(longValue, 0, int.MaxValue) : null;
         var result = await service.PrefetchAsync(limit, CancellationToken.None);
@@ -364,11 +449,139 @@ public sealed class DiscordBotHostedService(
         return string.Join("\n", lines);
     }
 
+    private static string FormatFinancialSnapshot(FinancialSnapshotData? snapshot, string? message)
+    {
+        if (snapshot is null)
+        {
+            return string.IsNullOrWhiteSpace(message) ? "なし" : message;
+        }
+
+        return string.Join("\n", new[]
+        {
+            snapshot.DisclosureDate is null ? null : $"- 開示日: `{snapshot.DisclosureDate:yyyy-MM-dd}`",
+            snapshot.NetSales is null ? null : $"- 売上高: {snapshot.NetSales:N0}",
+            snapshot.OperatingProfit is null ? null : $"- 営業利益: {snapshot.OperatingProfit:N0}",
+            snapshot.Profit is null ? null : $"- 純利益: {snapshot.Profit:N0}",
+            snapshot.Eps is null ? null : $"- EPS: {snapshot.Eps:N2}",
+            snapshot.EquityRatio is null ? null : $"- 自己資本比率: {snapshot.EquityRatio:P1}"
+        }.Where(line => line is not null));
+    }
+
+    private static string FormatNews(IReadOnlyList<NewsSentimentData> news)
+    {
+        if (news.Count == 0)
+        {
+            return "なし";
+        }
+
+        return string.Join("\n", news
+            .Take(5)
+            .Select(item =>
+            {
+                var published = item.PublishedAt is null ? "" : $" `{item.PublishedAt:yyyy-MM-dd}`";
+                var score = item.SentimentScore > 0 ? "Positive" : item.SentimentScore < 0 ? "Negative" : "Neutral";
+                return $"-{published} {score}: {item.Title}";
+            }));
+    }
+
+    private static string FormatArticles(IReadOnlyList<NewsSentimentData> news, int limit)
+    {
+        if (news.Count == 0)
+        {
+            return "取得済みの記事はありません。`/marketdata prefetch` を実行するとGDELTから記事取得を試みます。";
+        }
+
+        var lines = news
+            .OrderByDescending(item => item.PublishedAt ?? item.FetchedAt)
+            .Take(limit)
+            .Select(item =>
+            {
+                var published = item.PublishedAt is null ? "日付不明" : item.PublishedAt.Value.ToString("yyyy-MM-dd HH:mm");
+                var source = string.IsNullOrWhiteSpace(item.Source) ? "source unknown" : item.Source;
+                var sentiment = item.SentimentScore > 0 ? "Positive" : item.SentimentScore < 0 ? "Negative" : "Neutral";
+                var title = string.IsNullOrWhiteSpace(item.Url) ? item.Title : $"[{item.Title}]({item.Url})";
+                var summary = string.IsNullOrWhiteSpace(item.Summary) ? "" : $"\n  {item.Summary}";
+                return $"- `{published}` {source} / {sentiment} / relevance {item.RelevanceScore:P0}\n  {title}{summary}";
+            })
+            .ToList();
+
+        if (news.Count > limit)
+        {
+            lines.Add($"- 他 {news.Count - limit} 件");
+        }
+
+        return string.Join("\n", lines);
+    }
+
+    private static string FormatCacheEntries(IReadOnlyList<ExternalApiCacheSummary> entries)
+    {
+        if (entries.Count == 0)
+        {
+            return "なし";
+        }
+
+        var lines = entries
+            .Take(8)
+            .Select(entry =>
+            {
+                var status = entry.Succeeded ? "OK" : "NG";
+                var error = string.IsNullOrWhiteSpace(entry.ErrorMessage) ? "" : $" / {entry.ErrorMessage}";
+                return $"- `{entry.FetchedAt:yyyy-MM-dd HH:mm}` {status} {entry.Provider}:{entry.Function} ({entry.PayloadLength:N0} bytes){error}";
+            })
+            .ToList();
+
+        if (entries.Count > 8)
+        {
+            lines.Add($"- 他 {entries.Count - 8} 件");
+        }
+
+        return string.Join("\n", lines);
+    }
+
+    private static string FormatWatchTargets(IReadOnlyList<WatchTargetDto> targets)
+    {
+        if (targets.Count == 0)
+        {
+            return "監視対象銘柄はありません。`/watch add` またはSBI CSV取り込みで追加できます。";
+        }
+
+        var lines = targets
+            .Take(25)
+            .Select(target =>
+            {
+                var targetType = string.Join("+", new[]
+                {
+                    target.IsHolding ? "保有" : null,
+                    target.IsWatchlisted ? "監視" : null
+                }.Where(value => value is not null));
+                var market = string.Join("/", new[] { target.Market, target.Country, target.Currency }
+                    .Where(value => !string.IsNullOrWhiteSpace(value)));
+                var external = string.IsNullOrWhiteSpace(target.ExternalSymbol) ? "" : $" / 外部: {target.ExternalSymbol}";
+                var source = target.WatchlistSource is null ? "" : $" / 登録元: {FormatWatchlistSource(target.WatchlistSource)}";
+                var error = string.IsNullOrWhiteSpace(target.ExternalSymbolResolutionError) ? "" : $" / エラー: {target.ExternalSymbolResolutionError}";
+                return $"- `{target.Symbol}` {target.Name} / {FormatSecurityType(target.SecurityType)} / {targetType}{(string.IsNullOrWhiteSpace(market) ? "" : $" / {market}")}{external}{source}{error}";
+            })
+            .ToList();
+
+        if (targets.Count > 25)
+        {
+            lines.Add($"- 他 {targets.Count - 25} 件");
+        }
+
+        return string.Join("\n", lines);
+    }
+
     private static string FormatWatchlistSource(object source) => source.ToString() switch
     {
         "Manual" => "手動追加",
         "SoldAutomatically" => "売却検出による自動追加",
         _ => source.ToString() ?? "不明"
+    };
+
+    private static string FormatSecurityType(string securityType) => securityType switch
+    {
+        "Stock" => "株式",
+        _ => securityType
     };
 
     private static string FormatTargetType(string targetType) => targetType switch

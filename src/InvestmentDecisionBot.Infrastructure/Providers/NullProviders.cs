@@ -35,6 +35,17 @@ public sealed class NullMarketDataProvider : IMarketDataProvider, ICachedMarketD
 
     public Task<MarketDataCoverageResult> GetCoverageAsync(CancellationToken cancellationToken) =>
         Task.FromResult(new MarketDataCoverageResult(0, 0, 0, 0, 0, 0, Array.Empty<MarketDataCoverageItem>()));
+
+    public Task<MarketDataDetailResult> GetDetailAsync(string symbol, CancellationToken cancellationToken) =>
+        Task.FromResult(new MarketDataDetailResult(
+            false,
+            symbol,
+            null,
+            Array.Empty<DailyPriceBar>(),
+            null,
+            Array.Empty<NewsSentimentData>(),
+            Array.Empty<ExternalApiCacheSummary>(),
+            "Market data provider is disabled."));
 }
 
 public sealed class NullNewsProvider : INewsProvider

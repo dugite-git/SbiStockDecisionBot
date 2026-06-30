@@ -1,4 +1,5 @@
 ﻿using InvestmentDecisionBot.Application.Reporting;
+using InvestmentDecisionBot.Application.DTOs;
 using InvestmentDecisionBot.Application.Scoring;
 using InvestmentDecisionBot.Domain.Entities;
 using InvestmentDecisionBot.Domain.Enums;
@@ -33,6 +34,7 @@ public sealed class ReportServiceTests
 
         Assert.False(report.Succeeded);
         Assert.Contains("7203", report.Content);
+        Assert.Contains("SubScores: F", report.Content);
         Assert.DoesNotContain("AI", report.Content);
         Assert.Empty(await db.Context.AiAnalysisLogs.ToListAsync());
         Assert.Single(await db.Context.DailyReports.ToListAsync());
@@ -113,6 +115,48 @@ public sealed class ReportServiceTests
         var analysis = await db.Context.AnalysisResults.SingleAsync();
         Assert.Equal(50.05m, analysis.TotalScore);
         Assert.Equal(BotDecision.Hold, analysis.BotDecision);
+    }
+
+    [Fact]
+    public async Task DoesNotReportNewsAsMissingWhenSuccessfulNewsFetchReturnedNoArticles()
+    {
+        using var db = new TestDb();
+        var security = new Security { Symbol = "2802", Name = "Ajinomoto", SecurityType = SecurityType.Stock, Country = "JP", Currency = "JPY" };
+        db.Context.Securities.Add(security);
+        db.Context.Holdings.Add(new Holding
+        {
+            Security = security,
+            Quantity = 100,
+            AverageAcquisitionPrice = 100m,
+            AcquisitionAmount = 10000m,
+            ImportedCurrentPrice = 110m,
+            ImportedMarketValue = 11000m,
+            ImportedUnrealizedProfitLoss = 1000m,
+            IsActive = true
+        });
+        db.Context.ExternalApiCacheEntries.Add(new ExternalApiCacheEntry
+        {
+            Provider = "Gdelt",
+            Function = "ArticleList",
+            CacheKey = "2802",
+            PayloadJson = """{"articles":[]}""",
+            FetchedAt = DateTimeOffset.UtcNow,
+            ExpiresAt = DateTimeOffset.UtcNow.AddHours(12),
+            Succeeded = true
+        });
+        await db.Context.SaveChangesAsync();
+
+        var dailyPrices = Enumerable.Range(0, 61)
+            .Select(offset => new DailyPriceBar(DateOnly.FromDateTime(DateTime.UtcNow.Date.AddDays(-60 + offset)), 100m, 111m, 99m, 105m + offset * 0.1m, 1_000_000))
+            .ToList();
+        var financial = new FinancialSnapshotData(DateOnly.FromDateTime(DateTime.UtcNow.Date), 1000m, 120m, 110m, 80m, 50m, 500m, 2000m, 900m, 0.45m);
+        var marketData = new FakeMarketDataProvider(110m) { DailyPrices = dailyPrices };
+        var service = new ReportService(db.Context, new ScoreCalculator(), new BotDecisionResolver(), marketData, marketData, new FakeFinancialDataProvider(financial), new FakeDiscordPublisher(true), new NoopSystemLogService());
+
+        await service.GenerateDailyReportAsync(postToDiscord: false, CancellationToken.None);
+
+        var analysis = await db.Context.AnalysisResults.SingleAsync();
+        Assert.DoesNotContain("news", analysis.MissingData, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

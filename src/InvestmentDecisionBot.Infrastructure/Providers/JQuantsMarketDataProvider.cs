@@ -34,7 +34,7 @@ public sealed class JQuantsMarketDataProvider(
     private readonly string gdeltBaseUrl = configuration["GDELT_BASE_URL"] ?? "https://api.gdeltproject.org/api/v2/doc/doc";
     private readonly string gdeltTimespan = configuration["GDELT_TIMESPAN"] ?? "7d";
     private readonly int gdeltMaxRecords = ReadInt(configuration, "GDELT_MAX_RECORDS_PER_SECURITY", 50);
-    private readonly int gdeltRequestDelayMs = ReadInt(configuration, "GDELT_REQUEST_DELAY_MS", 1000);
+    private readonly int gdeltRequestDelayMs = ReadInt(configuration, "GDELT_REQUEST_DELAY_MS", 6000);
 
     public async Task<MarketPriceResult> GetLatestPriceAsync(Security security, CancellationToken cancellationToken)
     {
@@ -77,7 +77,7 @@ public sealed class JQuantsMarketDataProvider(
                 : item.Sentiment?.Equals("Negative", StringComparison.OrdinalIgnoreCase) == true
                     ? -0.35m
                     : 0m;
-            return new NewsSentimentData(item.Title, item.Url, item.PublishedAt, sentiment, Relevance(item.Title, security), item.Summary);
+            return new NewsSentimentData(item.Title, item.Url, item.PublishedAt, sentiment, Relevance(item.Title, security), item.Summary, item.Source, item.FetchedAt);
         }).ToList();
     }
 
@@ -153,6 +153,46 @@ public sealed class JQuantsMarketDataProvider(
             items);
     }
 
+    public async Task<MarketDataDetailResult> GetDetailAsync(string symbol, CancellationToken cancellationToken)
+    {
+        var normalized = symbol.Trim();
+        var security = await db.Securities
+            .FirstOrDefaultAsync(item => item.Symbol == normalized, cancellationToken);
+        if (security is null)
+        {
+            return new MarketDataDetailResult(false, normalized, null, [], null, [], [], "Security was not found. Import SBI CSV or add it to the watchlist first.");
+        }
+
+        var dailyPrices = await GetCachedDailyPricesAsync(security, cancellationToken);
+        var financial = await GetFinancialDataAsync(security, cancellationToken);
+        var news = await GetCachedNewsAsync(security, cancellationToken);
+        var cacheRows = await db.ExternalApiCacheEntries
+            .Where(cache => cache.CacheKey == security.Symbol || cache.CacheKey == security.ExternalSymbol)
+            .ToListAsync(cancellationToken);
+        var cacheEntries = cacheRows
+            .OrderByDescending(cache => cache.FetchedAt)
+            .Select(cache => new ExternalApiCacheSummary(
+                cache.Provider,
+                cache.Function,
+                cache.CacheKey,
+                cache.FetchedAt,
+                cache.ExpiresAt,
+                cache.Succeeded,
+                cache.ErrorMessage,
+                cache.PayloadJson.Length))
+            .ToList();
+
+        return new MarketDataDetailResult(
+            true,
+            security.Symbol,
+            security.Name,
+            dailyPrices,
+            financial.Snapshot,
+            news,
+            cacheEntries,
+            financial.ErrorMessage);
+    }
+
     public async Task<MarketDataPrefetchResult> PrefetchAsync(int? limit, CancellationToken cancellationToken)
     {
         var requestedLimit = limit.GetValueOrDefault(20);
@@ -186,7 +226,16 @@ public sealed class JQuantsMarketDataProvider(
                     var log = await FetchAndCacheAsync(JQuants, request.Function, security.Symbol, request.Url, jQuantsApiKey, "x-api-key", TimeSpan.FromDays(request.CacheDays), cancellationToken);
                     logs.Add(log);
                     if (log.Succeeded) succeeded++;
-                    await ThrottleAsync(jQuantsRateLimit, cancellationToken);
+                    if (log.Succeeded && request.Function == "ListedInfo")
+                    {
+                        await db.SaveChangesAsync(cancellationToken);
+                        await UpdateSecurityFromListedInfoAsync(security, cancellationToken);
+                    }
+
+                    if (!log.IsCacheHit)
+                    {
+                        await ThrottleAsync(jQuantsRateLimit, cancellationToken);
+                    }
                 }
             }
         }
@@ -272,12 +321,52 @@ public sealed class JQuantsMarketDataProvider(
         return logs;
     }
 
+    private async Task UpdateSecurityFromListedInfoAsync(Security security, CancellationToken cancellationToken)
+    {
+        var entry = await db.ExternalApiCacheEntries
+            .FirstOrDefaultAsync(cache => cache.Provider == JQuants && cache.Function == "ListedInfo" && cache.CacheKey == security.Symbol && cache.Succeeded, cancellationToken);
+        if (entry is null)
+        {
+            return;
+        }
+
+        var listedInfo = ParseListedInfo(entry.PayloadJson, security.Symbol);
+        if (!listedInfo.HasValue)
+        {
+            return;
+        }
+
+        var (companyName, companyNameEnglish) = listedInfo.Value;
+        var now = DateTimeOffset.UtcNow;
+        if (!string.IsNullOrWhiteSpace(companyName) && security.Name == security.Symbol)
+        {
+            security.Name = companyName;
+            security.UpdatedAt = now;
+        }
+
+        if (!string.IsNullOrWhiteSpace(companyNameEnglish))
+        {
+            security.ExternalSymbol = companyNameEnglish.Length > 64
+                ? companyNameEnglish[..64]
+                : companyNameEnglish;
+            security.ExternalSymbolResolvedAt = now;
+            security.ExternalSymbolResolutionError = null;
+            security.UpdatedAt = now;
+        }
+    }
+
     private async Task<List<MarketDataRequestLogItem>> PrefetchGdeltAsync(IReadOnlyList<Security> targets, CancellationToken cancellationToken)
     {
         var logs = new List<MarketDataRequestLogItem>();
         foreach (var security in targets)
         {
-            var query = $"(\"{security.Name}\" OR \"{security.Symbol}\")";
+            var query = BuildGdeltQuery(security);
+            if (query is null)
+            {
+                logs.Add(new MarketDataRequestLogItem(DateTimeOffset.UtcNow, "ArticleList", security.Symbol, false, "No GDELT-safe search term was available."));
+                continue;
+            }
+
             var url = $"{gdeltBaseUrl}?query={Uri.EscapeDataString(query)}&mode=ArtList&format=json&timespan={Uri.EscapeDataString(gdeltTimespan)}&maxrecords={Math.Clamp(gdeltMaxRecords, 1, 250)}&sort=DateDesc";
             var log = await FetchAndCacheAsync(Gdelt, "ArticleList", security.Symbol, url, null, null, TimeSpan.FromHours(12), cancellationToken);
             logs.Add(log);
@@ -307,6 +396,37 @@ public sealed class JQuantsMarketDataProvider(
     private Task DelayGdeltAsync(CancellationToken cancellationToken) =>
         gdeltRequestDelayMs > 0 ? Task.Delay(gdeltRequestDelayMs, cancellationToken) : Task.CompletedTask;
 
+    private static string? BuildGdeltQuery(Security security)
+    {
+        var terms = new[] { security.Name, security.ExternalSymbol, security.Symbol }
+            .Select(NormalizeGdeltSearchTerm)
+            .Where(term => term is not null)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(term => $"\"{term}\"")
+            .ToList();
+
+        return terms.Count switch
+        {
+            0 => null,
+            1 => terms[0],
+            _ => $"({string.Join(" OR ", terms)})"
+        };
+    }
+
+    private static string? NormalizeGdeltSearchTerm(string? value)
+    {
+        var normalized = string.Join(' ', (value ?? "").Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries));
+        if (normalized.Length <= 3 || normalized.All(char.IsDigit) || !normalized.Any(char.IsLetter) || normalized.Any(IsHalfWidthKanaOrPunctuation))
+        {
+            return null;
+        }
+
+        return normalized.Replace("\"", "", StringComparison.Ordinal);
+    }
+
+    private static bool IsHalfWidthKanaOrPunctuation(char value) =>
+        value is >= '\uFF61' and <= '\uFF9F';
+
     private async Task<MarketDataRequestLogItem> FetchAndCacheAsync(string provider, string function, string cacheKey, string url, string? apiKey, string? apiKeyHeader, TimeSpan ttl, CancellationToken cancellationToken)
     {
         var now = DateTimeOffset.UtcNow;
@@ -323,7 +443,7 @@ public sealed class JQuantsMarketDataProvider(
                     ValidateJsonPayload(cached.PayloadJson, provider, function, cacheKey);
                 }
 
-                return new MarketDataRequestLogItem(now, function, cacheKey, true, "cache hit");
+                return new MarketDataRequestLogItem(now, function, cacheKey, true, "cache hit", true);
             }
             catch (JsonException ex)
             {
@@ -378,7 +498,16 @@ public sealed class JQuantsMarketDataProvider(
                 return await response.Content.ReadAsStringAsync(cancellationToken);
             }
 
-            await Task.Delay(TimeSpan.FromSeconds(Math.Pow(2, attempt + 1)), cancellationToken);
+            var retryAfter = response.Headers.RetryAfter?.Delta ?? response.Headers.RetryAfter?.Date - DateTimeOffset.UtcNow;
+            var retryDelay = response.StatusCode == HttpStatusCode.TooManyRequests
+                ? TimeSpan.FromSeconds(6)
+                : TimeSpan.FromSeconds(Math.Pow(2, attempt + 1));
+            if (retryAfter.HasValue && retryAfter.Value > TimeSpan.Zero && retryAfter.Value > retryDelay)
+            {
+                retryDelay = retryAfter.Value;
+            }
+
+            await Task.Delay(retryDelay, cancellationToken);
         }
 
         throw new HttpRequestException("External API request failed after retries.");
@@ -456,29 +585,77 @@ public sealed class JQuantsMarketDataProvider(
     {
         using var document = JsonDocument.Parse(payload);
         var array = FindArray(document.RootElement, "statements", "Statements", "data");
-        var latest = array.ValueKind == JsonValueKind.Array
-            ? array.EnumerateArray().LastOrDefault()
-            : document.RootElement;
-        if (latest.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null)
+
+        if (array.ValueKind == JsonValueKind.Array)
+        {
+            return array.EnumerateArray()
+                .Select(ParseFinancialSnapshotItem)
+                .Where(snapshot => snapshot is not null)
+                .OrderBy(snapshot => snapshot!.DisclosureDate ?? DateOnly.MinValue)
+                .LastOrDefault();
+        }
+
+        return ParseFinancialSnapshotItem(document.RootElement);
+    }
+
+    private static FinancialSnapshotData? ParseFinancialSnapshotItem(JsonElement item)
+    {
+        if (item.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null)
         {
             return null;
         }
 
         var snapshot = new FinancialSnapshotData(
-            TryGetDate(latest, out var date) ? date : null,
-            GetDecimal(latest, "NetSales", "Sales", "OperatingRevenue"),
-            GetDecimal(latest, "OperatingProfit", "OperatingIncome", "OP"),
-            GetDecimal(latest, "OrdinaryProfit", "OdP"),
-            GetDecimal(latest, "Profit", "NetIncome", "ProfitAttributableToOwnersOfParent", "NP"),
-            GetDecimal(latest, "EarningsPerShare", "EPS"),
-            GetDecimal(latest, "BookValuePerShare", "BPS"),
-            GetDecimal(latest, "TotalAssets", "TA"),
-            GetDecimal(latest, "NetAssets", "Equity", "Eq"),
-            GetDecimal(latest, "EquityToAssetRatio", "EquityRatio", "EqAR"));
+            TryGetDate(item, out var date) ? date : null,
+            GetDecimal(item, "NetSales", "Sales", "OperatingRevenue"),
+            GetDecimal(item, "OperatingProfit", "OperatingIncome", "OP"),
+            GetDecimal(item, "OrdinaryProfit", "OdP"),
+            GetDecimal(item, "Profit", "NetIncome", "ProfitAttributableToOwnersOfParent", "NP"),
+            GetDecimal(item, "EarningsPerShare", "EPS"),
+            GetDecimal(item, "BookValuePerShare", "BPS"),
+            GetDecimal(item, "TotalAssets", "TA"),
+            GetDecimal(item, "NetAssets", "Equity", "Eq"),
+            GetDecimal(item, "EquityToAssetRatio", "EquityRatio", "EqAR"));
 
         return snapshot.NetSales is null && snapshot.OperatingProfit is null && snapshot.Profit is null && snapshot.EquityRatio is null
             ? null
             : snapshot;
+    }
+
+    private static (string? CompanyName, string? CompanyNameEnglish)? ParseListedInfo(string payload, string symbol)
+    {
+        using var document = JsonDocument.Parse(payload);
+        var array = FindArray(document.RootElement, "info", "listed_info", "listedInfo", "data");
+        var items = array.ValueKind == JsonValueKind.Array
+            ? array.EnumerateArray().ToList()
+            : [document.RootElement];
+
+        foreach (var item in items)
+        {
+            var code = GetString(item, "Code", "code", "LocalCode", "localCode") ?? "";
+            if (!string.IsNullOrWhiteSpace(code) && !code.StartsWith(symbol, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var companyName = FirstNonEmpty(
+                GetString(item, "CoName", "coName"),
+                GetString(item, "CompanyName", "companyName"),
+                GetString(item, "Name", "name"),
+                GetString(item, "CompanyNameFull", "companyNameFull"));
+            var companyNameEnglish = FirstNonEmpty(
+                GetString(item, "CoNameEn", "coNameEn"),
+                GetString(item, "CompanyNameEnglish", "companyNameEnglish"),
+                GetString(item, "EnglishName", "englishName"),
+                GetString(item, "CompanyNameEng", "companyNameEng"));
+
+            if (!string.IsNullOrWhiteSpace(companyName) || !string.IsNullOrWhiteSpace(companyNameEnglish))
+            {
+                return (companyName, companyNameEnglish);
+            }
+        }
+
+        return null;
     }
 
     private static IEnumerable<(string DocId, string SecurityCode, string CsvFlag)> ParseEdinetDocuments(string payload)
@@ -519,7 +696,7 @@ public sealed class JQuantsMarketDataProvider(
         foreach (var item in array.EnumerateArray())
         {
             var url = GetString(item, "url", "URL");
-            var title = GetString(item, "title", "Title") ?? "";
+            var title = FirstNonEmpty(GetString(item, "title", "Title"), BuildTitleFromUrl(url)) ?? "";
             if (string.IsNullOrWhiteSpace(url) || string.IsNullOrWhiteSpace(title) || !seen.Add(url))
             {
                 continue;
@@ -537,6 +714,29 @@ public sealed class JQuantsMarketDataProvider(
                 CreatedAt = DateTimeOffset.UtcNow
             };
         }
+    }
+
+    private static string? BuildTitleFromUrl(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url) || !Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        {
+            return null;
+        }
+
+        var slug = uri.Segments
+            .Reverse()
+            .Select(segment => Uri.UnescapeDataString(segment.Trim('/')))
+            .FirstOrDefault(segment => segment.Length > 8 && segment.Any(char.IsLetter));
+        if (string.IsNullOrWhiteSpace(slug))
+        {
+            return null;
+        }
+
+        return string.Join(' ', slug
+            .Replace('-', ' ')
+            .Replace('_', ' ')
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            .Trim();
     }
 
     private static JsonElement FindArray(JsonElement root, params string[] names)
@@ -615,6 +815,9 @@ public sealed class JQuantsMarketDataProvider(
 
         return null;
     }
+
+    private static string? FirstNonEmpty(params string?[] values) =>
+        values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim();
 
     private static DateTimeOffset? ParseGdeltDate(string? value)
     {

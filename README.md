@@ -48,6 +48,7 @@ EDINET_LOOKBACK_DAYS=3
 GDELT_BASE_URL=https://api.gdeltproject.org/api/v2/doc/doc
 GDELT_TIMESPAN=7d
 GDELT_MAX_RECORDS_PER_SECURITY=50
+GDELT_REQUEST_DELAY_MS=6000
 ```
 
 `MARKET_DATA_PROVIDER` は未設定の場合も `JQuants` として扱われ、外部市場データProviderを標準で有効化します。外部市場データ取得を止めたい場合は `Null` または `Disabled` を明示してください。別APIを追加する場合はInfrastructure層にProvider実装を登録してからProvider名を設定してください。未対応のProvider名を指定すると起動時に設定エラーになります。
@@ -82,9 +83,12 @@ docker compose up --build -d
 - `/watch add symbol:<symbol>`: 日本株4桁コードをウォッチリストへ追加します。
 - `/watch remove symbol:<symbol>`: ウォッチリストから外します。保有中の銘柄はレポート対象として残ります。
 - `/watch list`: 現在のウォッチリストを表示します。
+- `/watch targets`: 監視対象に入っている銘柄情報を表示します。
 - `/report`: ルールベースの投資判断レポートを即時生成します。外部AI補足は使用しません。
 - `/marketdata status`: 外部市場データProviderの取得状況を表示します。
 - `/marketdata coverage`: 外部シンボル、価格、日足、ニュースのキャッシュ状況を表示します。
+- `/marketdata data symbol:<symbol>`: APIから取得して保存済みの価格、財務、ニュース、キャッシュ情報を銘柄別に表示します。
+- `/marketdata articles symbol:<symbol> [limit:<n>]`: APIから取得して保存済みの記事データを銘柄別に表示します。
 - `/marketdata prefetch [limit:<n>]`: Providerが実装されている場合に、未取得データの事前取得を試みます。現在の既定ProviderはJ-Quantsです。
 
 ## 外部市場データProvider

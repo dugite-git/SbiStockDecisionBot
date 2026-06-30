@@ -59,4 +59,44 @@ public sealed class WatchlistServiceTests
         Assert.True(list[0].IsHolding);
         Assert.True(await db.Context.Holdings.AnyAsync(h => h.IsActive));
     }
+
+    [Fact]
+    public async Task ListsAllWatchTargetsWithSecurityInformation()
+    {
+        using var db = new TestDb();
+        var holding = new Security
+        {
+            Symbol = "7203",
+            Name = "Toyota",
+            SecurityType = SecurityType.Stock,
+            Country = "JP",
+            Currency = "JPY",
+            ExternalSymbol = "Toyota Motor"
+        };
+        var watched = new Security
+        {
+            Symbol = "9432",
+            Name = "NTT",
+            SecurityType = SecurityType.Stock,
+            Country = "JP",
+            Currency = "JPY"
+        };
+        db.Context.Securities.AddRange(holding, watched);
+        db.Context.Holdings.Add(new Holding { Security = holding, Quantity = 100, AverageAcquisitionPrice = 1, AcquisitionAmount = 100, IsActive = true });
+        db.Context.WatchlistItems.AddRange(
+            new WatchlistItem { Security = holding, Source = WatchlistSource.Manual, IsActive = true },
+            new WatchlistItem { Security = watched, Source = WatchlistSource.Manual, IsActive = true });
+        await db.Context.SaveChangesAsync();
+
+        var service = new WatchlistService(db.Context);
+
+        var targets = await service.ListTargetsAsync(CancellationToken.None);
+
+        Assert.Equal(["7203", "9432"], targets.Select(target => target.Symbol));
+        Assert.True(targets[0].IsHolding);
+        Assert.True(targets[0].IsWatchlisted);
+        Assert.Equal("Toyota Motor", targets[0].ExternalSymbol);
+        Assert.False(targets[1].IsHolding);
+        Assert.True(targets[1].IsWatchlisted);
+    }
 }

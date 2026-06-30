@@ -12,6 +12,7 @@ public interface IWatchlistService
     Task<WatchlistMutationResult> AddAsync(string symbol, CancellationToken cancellationToken);
     Task<WatchlistMutationResult> RemoveAsync(string symbol, CancellationToken cancellationToken);
     Task<IReadOnlyList<WatchlistItemDto>> ListAsync(CancellationToken cancellationToken);
+    Task<IReadOnlyList<WatchTargetDto>> ListTargetsAsync(CancellationToken cancellationToken);
 }
 
 public interface IReportService
@@ -24,6 +25,7 @@ public interface IMarketDataPrefetchService
     Task<MarketDataStatusResult> GetStatusAsync(CancellationToken cancellationToken);
     Task<MarketDataPrefetchResult> PrefetchAsync(int? limit, CancellationToken cancellationToken);
     Task<MarketDataCoverageResult> GetCoverageAsync(CancellationToken cancellationToken);
+    Task<MarketDataDetailResult> GetDetailAsync(string symbol, CancellationToken cancellationToken);
 }
 
 public interface IScoreCalculator
