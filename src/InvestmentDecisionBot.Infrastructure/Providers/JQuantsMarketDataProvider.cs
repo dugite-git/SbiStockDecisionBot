@@ -34,6 +34,7 @@ public sealed class JQuantsMarketDataProvider(
     private readonly string gdeltBaseUrl = configuration["GDELT_BASE_URL"] ?? "https://api.gdeltproject.org/api/v2/doc/doc";
     private readonly string gdeltTimespan = configuration["GDELT_TIMESPAN"] ?? "7d";
     private readonly int gdeltMaxRecords = ReadInt(configuration, "GDELT_MAX_RECORDS_PER_SECURITY", 50);
+    private readonly int gdeltRequestDelayMs = ReadInt(configuration, "GDELT_REQUEST_DELAY_MS", 1000);
 
     public async Task<MarketPriceResult> GetLatestPriceAsync(Security security, CancellationToken cancellationToken)
     {
@@ -233,10 +234,10 @@ public sealed class JQuantsMarketDataProvider(
     {
         var to = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-jQuantsDelayWeeks * 7));
         var from = to.AddYears(-2);
-        yield return ("ListedInfo", $"{jQuantsBaseUrl}/v1/listed/info?code={Uri.EscapeDataString(symbol)}", 7);
-        yield return ("DailyQuotes", $"{jQuantsBaseUrl}/v1/prices/daily_quotes?code={Uri.EscapeDataString(symbol)}&from={from:yyyy-MM-dd}&to={to:yyyy-MM-dd}", 1);
-        yield return ("Statements", $"{jQuantsBaseUrl}/v1/fins/statements?code={Uri.EscapeDataString(symbol)}", 1);
-        yield return ("EarningsCalendar", $"{jQuantsBaseUrl}/v1/fins/announcement?code={Uri.EscapeDataString(symbol)}", 1);
+        yield return ("ListedInfo", $"{jQuantsBaseUrl}/v2/equities/master?code={Uri.EscapeDataString(symbol)}", 7);
+        yield return ("DailyQuotes", $"{jQuantsBaseUrl}/v2/equities/bars/daily?code={Uri.EscapeDataString(symbol)}&from={from:yyyy-MM-dd}&to={to:yyyy-MM-dd}", 1);
+        yield return ("Statements", $"{jQuantsBaseUrl}/v2/fins/summary?code={Uri.EscapeDataString(symbol)}", 1);
+        yield return ("EarningsCalendar", $"{jQuantsBaseUrl}/v2/equities/earnings-calendar?code={Uri.EscapeDataString(symbol)}", 1);
     }
 
     private async Task<List<MarketDataRequestLogItem>> PrefetchEdinetAsync(IReadOnlyList<Security> targets, CancellationToken cancellationToken)
@@ -276,12 +277,13 @@ public sealed class JQuantsMarketDataProvider(
         var logs = new List<MarketDataRequestLogItem>();
         foreach (var security in targets)
         {
-            var query = $"\"{security.Name}\" OR \"{security.Symbol}\"";
+            var query = $"(\"{security.Name}\" OR \"{security.Symbol}\")";
             var url = $"{gdeltBaseUrl}?query={Uri.EscapeDataString(query)}&mode=ArtList&format=json&timespan={Uri.EscapeDataString(gdeltTimespan)}&maxrecords={Math.Clamp(gdeltMaxRecords, 1, 250)}&sort=DateDesc";
             var log = await FetchAndCacheAsync(Gdelt, "ArticleList", security.Symbol, url, null, null, TimeSpan.FromHours(12), cancellationToken);
             logs.Add(log);
             if (!log.Succeeded)
             {
+                await DelayGdeltAsync(cancellationToken);
                 continue;
             }
 
@@ -295,10 +297,15 @@ public sealed class JQuantsMarketDataProvider(
                     db.NewsItems.Add(article);
                 }
             }
+
+            await DelayGdeltAsync(cancellationToken);
         }
 
         return logs;
     }
+
+    private Task DelayGdeltAsync(CancellationToken cancellationToken) =>
+        gdeltRequestDelayMs > 0 ? Task.Delay(gdeltRequestDelayMs, cancellationToken) : Task.CompletedTask;
 
     private async Task<MarketDataRequestLogItem> FetchAndCacheAsync(string provider, string function, string cacheKey, string url, string? apiKey, string? apiKeyHeader, TimeSpan ttl, CancellationToken cancellationToken)
     {
@@ -309,13 +316,34 @@ public sealed class JQuantsMarketDataProvider(
             .FirstOrDefault(cache => cache.ExpiresAt > now);
         if (cached is not null)
         {
-            return new MarketDataRequestLogItem(now, function, cacheKey, true, "cache hit");
+            try
+            {
+                if (ExpectsJsonPayload(provider, function))
+                {
+                    ValidateJsonPayload(cached.PayloadJson, provider, function, cacheKey);
+                }
+
+                return new MarketDataRequestLogItem(now, function, cacheKey, true, "cache hit");
+            }
+            catch (JsonException ex)
+            {
+                logger.LogWarning(ex, "Cached external API payload is invalid for {Provider} {Function} {CacheKey}. Refetching.", provider, function, cacheKey);
+                cached.Succeeded = false;
+                cached.ErrorMessage = ex.Message;
+                cached.ExpiresAt = now;
+                cached.UpdatedAt = now;
+            }
         }
 
         var requestLog = new ExternalApiRequestLog { Provider = provider, Function = function, CacheKey = cacheKey, RequestedAt = now };
         try
         {
             var payload = await SendWithRetryAsync(url, apiKey, apiKeyHeader, cancellationToken);
+            if (ExpectsJsonPayload(provider, function))
+            {
+                ValidateJsonPayload(payload, provider, function, cacheKey);
+            }
+
             await UpsertCacheAsync(provider, function, cacheKey, payload, now, now.Add(ttl), true, null, cancellationToken);
             requestLog.Succeeded = true;
             db.ExternalApiRequestLogs.Add(requestLog);
@@ -373,6 +401,22 @@ public sealed class JQuantsMarketDataProvider(
         entry.UpdatedAt = fetchedAt;
     }
 
+    private static bool ExpectsJsonPayload(string provider, string function) =>
+        !(provider == Edinet && function == "DocumentCsvZip");
+
+    private static void ValidateJsonPayload(string payload, string provider, string function, string cacheKey)
+    {
+        try
+        {
+            using var _ = JsonDocument.Parse(payload);
+        }
+        catch (JsonException ex)
+        {
+            var sample = payload.Length <= 120 ? payload : payload[..120];
+            throw new JsonException($"{provider} {function} {cacheKey} returned a non-JSON payload: {sample}", ex);
+        }
+    }
+
     private async Task<bool> HasFreshCacheAsync(string provider, string function, string cacheKey, CancellationToken cancellationToken) =>
         (await db.ExternalApiCacheEntries
             .Where(cache => cache.Provider == provider && cache.Function == function && cache.CacheKey == cacheKey && cache.Succeeded)
@@ -391,18 +435,18 @@ public sealed class JQuantsMarketDataProvider(
         var bars = new List<DailyPriceBar>();
         foreach (var item in array.EnumerateArray())
         {
-            if (!TryGetDate(item, out var date) || !TryGetDecimal(item, out var close, "Close", "AdjustmentClose"))
+            if (!TryGetDate(item, out var date) || !TryGetDecimal(item, out var close, "Close", "AdjustmentClose", "C", "AdjC"))
             {
                 continue;
             }
 
             bars.Add(new DailyPriceBar(
                 date,
-                GetDecimal(item, "Open", "AdjustmentOpen") ?? close,
-                GetDecimal(item, "High", "AdjustmentHigh") ?? close,
-                GetDecimal(item, "Low", "AdjustmentLow") ?? close,
+                GetDecimal(item, "Open", "AdjustmentOpen", "O", "AdjO") ?? close,
+                GetDecimal(item, "High", "AdjustmentHigh", "H", "AdjH") ?? close,
+                GetDecimal(item, "Low", "AdjustmentLow", "L", "AdjL") ?? close,
                 close,
-                GetLong(item, "Volume", "TurnoverValue") ?? 0));
+                GetLong(item, "Volume", "TurnoverValue", "Vo", "AdjVo") ?? 0));
         }
 
         return bars;
@@ -423,14 +467,14 @@ public sealed class JQuantsMarketDataProvider(
         var snapshot = new FinancialSnapshotData(
             TryGetDate(latest, out var date) ? date : null,
             GetDecimal(latest, "NetSales", "Sales", "OperatingRevenue"),
-            GetDecimal(latest, "OperatingProfit", "OperatingIncome"),
-            GetDecimal(latest, "OrdinaryProfit"),
-            GetDecimal(latest, "Profit", "NetIncome", "ProfitAttributableToOwnersOfParent"),
+            GetDecimal(latest, "OperatingProfit", "OperatingIncome", "OP"),
+            GetDecimal(latest, "OrdinaryProfit", "OdP"),
+            GetDecimal(latest, "Profit", "NetIncome", "ProfitAttributableToOwnersOfParent", "NP"),
             GetDecimal(latest, "EarningsPerShare", "EPS"),
             GetDecimal(latest, "BookValuePerShare", "BPS"),
-            GetDecimal(latest, "TotalAssets"),
-            GetDecimal(latest, "NetAssets", "Equity"),
-            GetDecimal(latest, "EquityToAssetRatio", "EquityRatio"));
+            GetDecimal(latest, "TotalAssets", "TA"),
+            GetDecimal(latest, "NetAssets", "Equity", "Eq"),
+            GetDecimal(latest, "EquityToAssetRatio", "EquityRatio", "EqAR"));
 
         return snapshot.NetSales is null && snapshot.OperatingProfit is null && snapshot.Profit is null && snapshot.EquityRatio is null
             ? null
@@ -510,7 +554,7 @@ public sealed class JQuantsMarketDataProvider(
 
     private static bool TryGetDate(JsonElement item, out DateOnly date)
     {
-        foreach (var name in new[] { "Date", "date", "DisclosedDate", "disclosedDate" })
+        foreach (var name in new[] { "Date", "date", "DisclosedDate", "disclosedDate", "DiscDate" })
         {
             var value = GetString(item, name);
             if (DateOnly.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.None, out date))

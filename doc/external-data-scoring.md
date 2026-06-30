@@ -26,6 +26,7 @@ EDINET_LOOKBACK_DAYS=3
 GDELT_BASE_URL=https://api.gdeltproject.org/api/v2/doc/doc
 GDELT_TIMESPAN=7d
 GDELT_MAX_RECORDS_PER_SECURITY=50
+GDELT_REQUEST_DELAY_MS=1000
 ```
 
 未設定の場合は `JQuants` として扱われます。外部市場データ取得なしにしたい場合は `Null` または `Disabled` を明示してください。別APIを追加する場合はInfrastructure層でProviderを登録し、対応するProvider名を設定してください。未対応のProvider名は起動時にエラーになります。

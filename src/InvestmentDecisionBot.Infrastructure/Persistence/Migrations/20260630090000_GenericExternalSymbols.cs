@@ -1,11 +1,14 @@
 using System;
+using InvestmentDecisionBot.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 
 #nullable disable
 
 namespace InvestmentDecisionBot.Infrastructure.Persistence.Migrations
 {
     /// <inheritdoc />
+    [DbContext(typeof(BotDbContext))]
     [Migration("20260630090000_GenericExternalSymbols")]
     public partial class GenericExternalSymbols : Migration
     {

@@ -34,7 +34,11 @@ public sealed class JQuantsMarketDataProviderTests
         Assert.Contains(result.Messages, message => message.Contains("JQUANTS_API_KEY"));
         Assert.Equal(1, result.Skipped);
         Assert.Equal(1, handler.CallCount);
-        Assert.All(handler.Requests, request => Assert.Contains("Toyota", request.RequestUri!.Query));
+        Assert.All(handler.Requests, request =>
+        {
+            var query = Uri.UnescapeDataString(request.RequestUri!.Query);
+            Assert.Contains("query=(\"Toyota\" OR \"7203\")", query);
+        });
     }
 
     [Fact]
@@ -46,10 +50,10 @@ public sealed class JQuantsMarketDataProviderTests
         await db.Context.SaveChangesAsync();
         db.Context.ExternalApiCacheEntries.AddRange(
             Cache("JQuants", "DailyQuotes", "7203", """
-            {"daily_quotes":[{"Date":"2026-01-05","Open":100,"High":110,"Low":90,"Close":105,"Volume":1000}]}
+            {"data":[{"Date":"2026-01-05","O":100,"H":110,"L":90,"C":105,"Vo":1000}]}
             """),
             Cache("JQuants", "Statements", "7203", """
-            {"statements":[{"DisclosedDate":"2026-01-10","NetSales":1000,"OperatingProfit":120,"Profit":80,"EarningsPerShare":50,"TotalAssets":2000,"NetAssets":900,"EquityToAssetRatio":0.45}]}
+            {"data":[{"DiscDate":"2026-01-10","Sales":1000,"OP":120,"NP":80,"EPS":50,"TA":2000,"Eq":900,"EqAR":0.45}]}
             """));
         db.Context.NewsItems.Add(new NewsItem
         {
@@ -76,9 +80,120 @@ public sealed class JQuantsMarketDataProviderTests
         Assert.True(news[0].SentimentScore > 0);
     }
 
+    [Fact]
+    public async Task PrefetchUsesCurrentJQuantsV2Endpoints()
+    {
+        using var db = new TestDb();
+        var security = new Security { Symbol = "7203", Name = "Toyota", SecurityType = SecurityType.Stock, Country = "JP", Currency = "JPY" };
+        db.Context.Securities.Add(security);
+        db.Context.WatchlistItems.Add(new WatchlistItem { Security = security, IsActive = true });
+        await db.Context.SaveChangesAsync();
+
+        var handler = new StubHttpMessageHandler(_ => StubHttpMessageHandler.Json("""{"data":[]}"""));
+        var provider = CreateProvider(db, handler, new Dictionary<string, string?>
+        {
+            ["JQUANTS_API_KEY"] = "test-key",
+            ["EDINET_API_KEY"] = "",
+            ["JQUANTS_RATE_LIMIT_PER_MINUTE"] = "1000000",
+            ["GDELT_MAX_RECORDS_PER_SECURITY"] = "1"
+        });
+
+        await provider.PrefetchAsync(1, CancellationToken.None);
+
+        var jQuantsPaths = handler.Requests
+            .Select(request => request.RequestUri!)
+            .Where(uri => uri.Host == "api.jquants.com")
+            .Select(uri => uri.AbsolutePath)
+            .ToList();
+        Assert.Contains("/v2/equities/master", jQuantsPaths);
+        Assert.Contains("/v2/equities/bars/daily", jQuantsPaths);
+        Assert.Contains("/v2/fins/summary", jQuantsPaths);
+        Assert.Contains("/v2/equities/earnings-calendar", jQuantsPaths);
+    }
+
+    [Fact]
+    public async Task PrefetchReportsNonJsonApiPayloadWithoutThrowing()
+    {
+        using var db = new TestDb();
+        var security = new Security { Symbol = "7203", Name = "Toyota", SecurityType = SecurityType.Stock, Country = "JP", Currency = "JPY" };
+        db.Context.Securities.Add(security);
+        db.Context.WatchlistItems.Add(new WatchlistItem { Security = security, IsActive = true });
+        await db.Context.SaveChangesAsync();
+
+        var handler = new StubHttpMessageHandler(_ => StubHttpMessageHandler.Json("Quota exceeded"));
+        var provider = CreateProvider(db, handler, new Dictionary<string, string?>
+        {
+            ["JQUANTS_API_KEY"] = "",
+            ["EDINET_API_KEY"] = "",
+            ["GDELT_MAX_RECORDS_PER_SECURITY"] = "1"
+        });
+
+        var result = await provider.PrefetchAsync(1, CancellationToken.None);
+
+        Assert.Contains(result.RequestLogs, log => !log.Succeeded && log.ErrorMessage?.Contains("non-JSON payload") == true);
+    }
+
+    [Fact]
+    public async Task PrefetchInvalidatesNonJsonCacheAndRefetches()
+    {
+        using var db = new TestDb();
+        var security = new Security { Symbol = "7203", Name = "Toyota", SecurityType = SecurityType.Stock, Country = "JP", Currency = "JPY" };
+        db.Context.Securities.Add(security);
+        db.Context.WatchlistItems.Add(new WatchlistItem { Security = security, IsActive = true });
+        db.Context.ExternalApiCacheEntries.Add(Cache("Gdelt", "ArticleList", "7203", "Quota exceeded"));
+        await db.Context.SaveChangesAsync();
+
+        var handler = new StubHttpMessageHandler(_ => StubHttpMessageHandler.Json("""{"articles":[]}"""));
+        var provider = CreateProvider(db, handler, new Dictionary<string, string?>
+        {
+            ["JQUANTS_API_KEY"] = "",
+            ["EDINET_API_KEY"] = "",
+            ["GDELT_MAX_RECORDS_PER_SECURITY"] = "1"
+        });
+
+        var result = await provider.PrefetchAsync(1, CancellationToken.None);
+
+        Assert.Contains(result.RequestLogs, log => log.Function == "ArticleList" && log.Succeeded);
+        Assert.Equal(1, handler.CallCount);
+    }
+
+    [Fact]
+    public async Task PrefetchGdeltStoresArticlesAsNewsItems()
+    {
+        using var db = new TestDb();
+        var security = new Security { Symbol = "7203", Name = "Toyota", SecurityType = SecurityType.Stock, Country = "JP", Currency = "JPY" };
+        db.Context.Securities.Add(security);
+        db.Context.WatchlistItems.Add(new WatchlistItem { Security = security, IsActive = true });
+        await db.Context.SaveChangesAsync();
+
+        var handler = new StubHttpMessageHandler(_ => StubHttpMessageHandler.Json("""
+        {"articles":[{"url":"https://example.test/toyota","title":"Toyota profit upgrade","seendate":"20260630T010203Z","domain":"example.test"}]}
+        """));
+        var provider = CreateProvider(db, handler, new Dictionary<string, string?>
+        {
+            ["JQUANTS_API_KEY"] = "",
+            ["EDINET_API_KEY"] = "",
+            ["GDELT_MAX_RECORDS_PER_SECURITY"] = "1"
+        });
+
+        var result = await provider.PrefetchAsync(1, CancellationToken.None);
+
+        Assert.Contains(result.RequestLogs, log => log.Function == "ArticleList" && log.Succeeded);
+        var news = Assert.Single(db.Context.NewsItems);
+        Assert.Equal(security.Id, news.SecurityId);
+        Assert.Equal("Toyota profit upgrade", news.Title);
+        Assert.Equal("Positive", news.Sentiment);
+    }
+
     private static JQuantsMarketDataProvider CreateProvider(TestDb db, HttpMessageHandler handler, IEnumerable<KeyValuePair<string, string?>> settings)
     {
-        var configuration = new ConfigurationBuilder().AddInMemoryCollection(settings).Build();
+        var defaults = new Dictionary<string, string?> { ["GDELT_REQUEST_DELAY_MS"] = "0" };
+        foreach (var setting in settings)
+        {
+            defaults[setting.Key] = setting.Value;
+        }
+
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(defaults).Build();
         return new JQuantsMarketDataProvider(db.Context, new FakeHttpClientFactory(handler), configuration, NullLogger<JQuantsMarketDataProvider>.Instance);
     }
 
