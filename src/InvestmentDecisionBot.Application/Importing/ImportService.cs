@@ -29,7 +29,18 @@ public sealed class ImportService(ISbiCsvParser parser, IBotDbContext db, ISyste
 
         var now = DateTimeOffset.UtcNow;
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        var symbols = parsed.Holdings.Select(h => NormalizeSymbol(h.Symbol)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var supportedHoldings = parsed.Holdings
+            .Select(holding => holding with { Symbol = NormalizeSymbol(holding.Symbol) })
+            .Where(holding => IsJapaneseSymbol(holding.Symbol))
+            .ToList();
+        var skippedUnsupported = parsed.Holdings.Count - supportedHoldings.Count;
+        if (supportedHoldings.Count == 0)
+        {
+            await logs.LogAsync("Warning", "Import", "SBI CSV contained no supported Japanese stock holdings.", null, cancellationToken);
+            return new SbiImportResult(false, $"CSVに対象の日本株4桁コードがありませんでした。スキップ: {skippedUnsupported}件。DBは更新していません。", 0, 0, 0, 0, 0, parsed.EncodingName);
+        }
+
+        var symbols = supportedHoldings.Select(h => h.Symbol).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var existingSecurities = await db.Securities
             .Where(s => s.SecurityType == SecurityType.Stock && symbols.Contains(s.Symbol))
             .ToDictionaryAsync(s => s.Symbol, StringComparer.OrdinalIgnoreCase, cancellationToken);
@@ -37,9 +48,9 @@ public sealed class ImportService(ISbiCsvParser parser, IBotDbContext db, ISyste
         var created = 0;
         var updated = 0;
 
-        foreach (var imported in parsed.Holdings)
+        foreach (var imported in supportedHoldings)
         {
-            var symbol = NormalizeSymbol(imported.Symbol);
+            var symbol = imported.Symbol;
             if (!existingSecurities.TryGetValue(symbol, out var security))
             {
                 security = new Security
@@ -47,8 +58,8 @@ public sealed class ImportService(ISbiCsvParser parser, IBotDbContext db, ISyste
                     Symbol = symbol,
                     Name = imported.Name,
                     SecurityType = SecurityType.Stock,
-                    Country = IsJapaneseSymbol(symbol) ? "JP" : "US",
-                    Currency = IsJapaneseSymbol(symbol) ? "JPY" : "USD",
+                    Country = "JP",
+                    Currency = "JPY",
                     CreatedAt = now,
                     UpdatedAt = now
                 };
@@ -145,7 +156,10 @@ public sealed class ImportService(ISbiCsvParser parser, IBotDbContext db, ISyste
         }
 
         await db.SaveChangesAsync(cancellationToken);
-        return new SbiImportResult(true, "CSV取り込みが完了しました。", parsed.Holdings.Count, created, updated, soldCount, watchAdded, parsed.EncodingName);
+        var message = skippedUnsupported == 0
+            ? "CSV取り込みが完了しました。"
+            : $"CSV取り込みが完了しました。対象外コードを{skippedUnsupported}件スキップしました。";
+        return new SbiImportResult(true, message, supportedHoldings.Count, created, updated, soldCount, watchAdded, parsed.EncodingName);
     }
 
     private static string NormalizeSymbol(string symbol) => symbol.Trim().ToUpperInvariant();

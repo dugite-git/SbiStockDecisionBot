@@ -16,6 +16,11 @@ public sealed class WatchlistService(IBotDbContext db) : IWatchlistService
             return new WatchlistMutationResult(false, "銘柄コードを指定してください。");
         }
 
+        if (!IsJapaneseSymbol(symbol))
+        {
+            return new WatchlistMutationResult(false, $"{symbol} は対象外です。日本株の4桁コードのみ登録できます。");
+        }
+
         var security = await db.Securities.FirstOrDefaultAsync(s => s.Symbol == symbol && s.SecurityType == SecurityType.Stock, cancellationToken);
         if (security is null)
         {
@@ -24,8 +29,8 @@ public sealed class WatchlistService(IBotDbContext db) : IWatchlistService
                 Symbol = symbol,
                 Name = symbol,
                 SecurityType = SecurityType.Stock,
-                Country = IsJapaneseSymbol(symbol) ? "JP" : "US",
-                Currency = IsJapaneseSymbol(symbol) ? "JPY" : "USD"
+                Country = "JP",
+                Currency = "JPY"
             };
             db.Securities.Add(security);
         }

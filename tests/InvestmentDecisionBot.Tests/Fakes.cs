@@ -1,6 +1,7 @@
 using InvestmentDecisionBot.Application.Abstractions;
 using InvestmentDecisionBot.Application.DTOs;
 using InvestmentDecisionBot.Domain.Entities;
+using System.Net;
 
 namespace InvestmentDecisionBot.Tests;
 
@@ -23,14 +24,6 @@ internal sealed class FakeDiscordPublisher(bool succeeds) : IDiscordReportPublis
             : new DiscordPostResult(false, null, "post failed"));
 }
 
-internal sealed class FakeAiAnalysisClient(bool succeeds) : IAiAnalysisClient
-{
-    public Task<AiAnalysisResultDto> AnalyzeAsync(AiAnalysisRequestDto request, CancellationToken cancellationToken) =>
-        Task.FromResult(succeeds
-            ? new AiAnalysisResultDto(true, request.BotDecision.Decision, request.BotDecision.SellReasonType, 0.7m, "補足情報です。", [], [], "{\"ok\":true}", null)
-            : new AiAnalysisResultDto(false, null, null, 0m, "", [], [], null, "disabled"));
-}
-
 internal sealed class FakeMarketDataProvider(decimal? price = null, bool usedFallback = false) : IMarketDataProvider, ICachedMarketDataProvider
 {
     public int CallCount { get; private set; }
@@ -51,4 +44,31 @@ internal sealed class FakeMarketDataProvider(decimal? price = null, bool usedFal
 
     public Task<decimal?> GetCachedExchangeRateAsync(string fromCurrency, string toCurrency, CancellationToken cancellationToken) =>
         Task.FromResult<decimal?>(null);
+}
+
+internal sealed class FakeFinancialDataProvider(FinancialSnapshotData? snapshot = null) : IFinancialDataProvider
+{
+    public Task<FinancialDataResult> GetFinancialDataAsync(Security security, CancellationToken cancellationToken) =>
+        Task.FromResult(snapshot is null ? new FinancialDataResult(false) : new FinancialDataResult(true, snapshot));
+}
+
+internal sealed class FakeHttpClientFactory(HttpMessageHandler handler) : IHttpClientFactory
+{
+    public HttpClient CreateClient(string name) => new(handler, disposeHandler: false);
+}
+
+internal sealed class StubHttpMessageHandler(Func<HttpRequestMessage, HttpResponseMessage> send) : HttpMessageHandler
+{
+    public int CallCount { get; private set; }
+    public List<HttpRequestMessage> Requests { get; } = [];
+
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        CallCount++;
+        Requests.Add(request);
+        return Task.FromResult(send(request));
+    }
+
+    public static HttpResponseMessage Json(string payload, HttpStatusCode statusCode = HttpStatusCode.OK) =>
+        new(statusCode) { Content = new StringContent(payload) };
 }

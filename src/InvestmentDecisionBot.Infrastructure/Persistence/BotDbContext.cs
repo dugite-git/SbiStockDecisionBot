@@ -27,7 +27,7 @@ public sealed class BotDbContext(DbContextOptions<BotDbContext> options) : DbCon
             entity.HasIndex(e => new { e.SecurityType, e.Symbol }).IsUnique();
             entity.Property(e => e.Symbol).HasMaxLength(32);
             entity.Property(e => e.Name).HasMaxLength(256);
-            entity.Property(e => e.AlphaVantageSymbol).HasMaxLength(64);
+            entity.Property(e => e.ExternalSymbol).HasMaxLength(64);
         });
 
         modelBuilder.Entity<Holding>(entity =>

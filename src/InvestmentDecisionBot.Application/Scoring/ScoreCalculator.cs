@@ -14,8 +14,15 @@ public sealed class ScoreCalculator : IScoreCalculator
 
         AddMissing(missingData, "fundamental");
         AddMissing(missingData, "quality");
-        var fundamental = Neutral("Alpha Vantageの財務諸表キャッシュがないため、FundamentalScoreは中立値で評価しています。");
-        var quality = Neutral("Alpha Vantageの品質・収益性キャッシュがないため、QualityScoreは中立値で評価しています。");
+        var fundamental = Neutral("外部財務データのキャッシュがないため、FundamentalScoreは中立値で評価しています。");
+        var quality = Neutral("外部品質・収益性データのキャッシュがないため、QualityScoreは中立値で評価しています。");
+        if (input.FinancialSnapshot is not null)
+        {
+            missingData.RemoveAll(key => key.Equals("fundamental", StringComparison.OrdinalIgnoreCase) || key.Equals("quality", StringComparison.OrdinalIgnoreCase) || key.Equals("financial", StringComparison.OrdinalIgnoreCase));
+            fundamental = CalculateFundamental(input.FinancialSnapshot, missingData);
+            quality = CalculateQuality(input.FinancialSnapshot, missingData);
+        }
+
         var momentum = CalculateMomentum(input, missingData);
         var news = CalculateNews(input, missingData);
         var positionRisk = CalculatePositionRisk(input, missingData);
@@ -52,13 +59,105 @@ public sealed class ScoreCalculator : IScoreCalculator
             warnings);
     }
 
+    private static ScoreBreakdown CalculateFundamental(FinancialSnapshotData financial, List<string> missingData)
+    {
+        var scoreParts = new List<decimal>();
+        if (financial.OperatingProfit is not null && financial.NetSales is > 0m)
+        {
+            var margin = financial.OperatingProfit.Value / financial.NetSales.Value;
+            scoreParts.Add(margin switch
+            {
+                >= 0.15m => 90m,
+                >= 0.10m => 75m,
+                >= 0.05m => 60m,
+                >= 0m => 45m,
+                _ => 20m
+            });
+        }
+
+        if (financial.Profit is not null)
+        {
+            scoreParts.Add(financial.Profit.Value switch
+            {
+                > 0m => 65m,
+                < 0m => 25m,
+                _ => 50m
+            });
+        }
+
+        if (financial.Eps is not null)
+        {
+            scoreParts.Add(financial.Eps.Value switch
+            {
+                > 0m => 65m,
+                < 0m => 25m,
+                _ => 50m
+            });
+        }
+
+        if (scoreParts.Count == 0)
+        {
+            AddMissing(missingData, "fundamental");
+            return Neutral("Financial cache exists but usable fundamental fields are missing.");
+        }
+
+        var raw = scoreParts.Average();
+        var confidence = Math.Clamp(0.35m + scoreParts.Count * 0.15m, 0.35m, 0.75m);
+        return Breakdown(raw, confidence, [$"Financial data available ({scoreParts.Count} fundamental fields)."], []);
+    }
+
+    private static ScoreBreakdown CalculateQuality(FinancialSnapshotData financial, List<string> missingData)
+    {
+        var scoreParts = new List<decimal>();
+        if (financial.EquityRatio is not null)
+        {
+            var ratio = financial.EquityRatio.Value > 1m ? financial.EquityRatio.Value / 100m : financial.EquityRatio.Value;
+            scoreParts.Add(ratio switch
+            {
+                >= 0.55m => 90m,
+                >= 0.40m => 75m,
+                >= 0.25m => 55m,
+                >= 0.10m => 35m,
+                _ => 20m
+            });
+        }
+
+        if (financial.NetAssets is not null && financial.TotalAssets is > 0m)
+        {
+            var equityRatio = financial.NetAssets.Value / financial.TotalAssets.Value;
+            scoreParts.Add(equityRatio switch
+            {
+                >= 0.55m => 90m,
+                >= 0.40m => 75m,
+                >= 0.25m => 55m,
+                >= 0.10m => 35m,
+                _ => 20m
+            });
+        }
+
+        if (financial.OperatingProfit is not null && financial.Profit is not null)
+        {
+            scoreParts.Add(financial.OperatingProfit.Value > 0m && financial.Profit.Value > 0m ? 75m : financial.Profit.Value < 0m ? 25m : 50m);
+        }
+
+        if (scoreParts.Count == 0)
+        {
+            AddMissing(missingData, "quality");
+            return Neutral("Financial cache exists but usable quality fields are missing.");
+        }
+
+        var raw = scoreParts.Average();
+        var confidence = Math.Clamp(0.35m + scoreParts.Count * 0.15m, 0.35m, 0.75m);
+        return Breakdown(raw, confidence, [$"Financial data available ({scoreParts.Count} quality fields)."], []);
+    }
+
     private static ScoreBreakdown CalculateMomentum(AnalysisInput input, List<string> missingData)
     {
         var bars = (input.DailyPrices ?? Array.Empty<DailyPriceBar>()).OrderBy(bar => bar.Date).ToList();
         if (bars.Count < 30)
         {
             AddMissing(missingData, "momentum");
-            return Breakdown(50m, 0.15m, [], [$"Alpha Vantageの日足キャッシュが不足しています（{bars.Count}/30本）。MomentumScoreは中立値で評価しています。`/marketdata prefetch` でTIME_SERIES_DAILYを取得してください。"]);
+            return Breakdown(50m, 0.15m, [], [$"外部市場データの日足キャッシュが不足しています（{bars.Count}/30本）。MomentumScoreは中立値で評価しています。`/marketdata prefetch` で日足データを取得してください。"]);
         }
 
         var latest = bars[^1];
@@ -81,7 +180,7 @@ public sealed class ScoreCalculator : IScoreCalculator
         if (news.Count == 0)
         {
             AddMissing(missingData, "news");
-            return Breakdown(50m, 0.10m, [], ["Alpha Vantageのニュース感情キャッシュがないため、ニュースは中立値で評価しています。"]);
+            return Breakdown(50m, 0.10m, [], ["外部ニュースキャッシュがないため、ニュースは中立値で評価しています。"]);
         }
 
         var weighted = news.Select(item =>
@@ -213,12 +312,7 @@ public sealed class ScoreCalculator : IScoreCalculator
 
     private static decimal CurrencyRiskScore(AnalysisInput input)
     {
-        if (!string.Equals(input.Currency, "USD", StringComparison.OrdinalIgnoreCase))
-        {
-            return 70m;
-        }
-
-        return input.UsdJpyRate is null ? 50m : 60m;
+        return 70m;
     }
 
     private static decimal ConcentrationScore(AnalysisInput input)

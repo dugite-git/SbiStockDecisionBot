@@ -1,6 +1,7 @@
 using Discord;
 using Discord.WebSocket;
 using InvestmentDecisionBot.Application.Abstractions;
+using InvestmentDecisionBot.Application.DTOs;
 using InvestmentDecisionBot.Infrastructure.Discord;
 using InvestmentDecisionBot.Worker.Scheduling;
 using Microsoft.Extensions.Options;
@@ -84,18 +85,18 @@ public sealed class DiscordBotHostedService(
 
         var marketData = new SlashCommandBuilder()
             .WithName("marketdata")
-            .WithDescription("Alpha Vantageデータ取得とキャッシュを管理します")
+            .WithDescription("市場データ取得とキャッシュを管理します")
             .AddOption(new SlashCommandOptionBuilder()
                 .WithName("status")
                 .WithDescription("リクエスト残数と未取得キューを表示します")
                 .WithType(ApplicationCommandOptionType.SubCommand))
             .AddOption(new SlashCommandOptionBuilder()
                 .WithName("coverage")
-                .WithDescription("監視対象銘柄のAlpha Vantageカバレッジを表示します")
+                .WithDescription("監視対象銘柄の市場データカバレッジを表示します")
                 .WithType(ApplicationCommandOptionType.SubCommand))
             .AddOption(new SlashCommandOptionBuilder()
                 .WithName("prefetch")
-                .WithDescription("無料枠の範囲で未取得データを取得します")
+                .WithDescription("設定上限の範囲で未取得データを取得します")
                 .WithType(ApplicationCommandOptionType.SubCommand)
                 .AddOption("limit", ApplicationCommandOptionType.Integer, "最大取得リクエスト数", isRequired: false));
 
@@ -238,7 +239,7 @@ public sealed class DiscordBotHostedService(
             var status = await service.GetStatusAsync(CancellationToken.None);
             var next = status.NextItems.Count == 0 ? "なし" : string.Join(", ", status.NextItems);
             var embed = new EmbedBuilder()
-                .WithTitle("Alpha Vantage取得状況")
+                .WithTitle("市場データ取得状況")
                 .WithColor(Color.Teal)
                 .AddField("1日の上限", status.DailyLimit, true)
                 .AddField("今日の使用数", status.UsedToday, true)
@@ -258,13 +259,13 @@ public sealed class DiscordBotHostedService(
             {
                 var data = string.Join(", ", new[]
                 {
-                    item.IsAlphaVantageCovered ? "シンボル" : null,
+                    item.IsProviderCovered ? "外部シンボル" : null,
                     item.HasFreshPrice ? "価格" : null,
                     item.HasDailySeries ? "日足" : null,
                     item.HasNewsSentiment ? "ニュース" : null,
                     item.HasExchangeRate ? "為替" : null
                 }.Where(value => value is not null));
-                var symbol = item.AlphaVantageSymbol is null ? item.Symbol : $"{item.Symbol}->{item.AlphaVantageSymbol}";
+                var symbol = item.ExternalSymbol is null ? item.Symbol : $"{item.Symbol}->{item.ExternalSymbol}";
                 var error = string.IsNullOrWhiteSpace(item.ResolutionError) ? "" : $" / エラー: {item.ResolutionError}";
                 return $"- `{symbol}` {FormatTargetType(item.TargetType)}: {(string.IsNullOrWhiteSpace(data) ? "なし" : data)}{error}";
             });
@@ -277,10 +278,10 @@ public sealed class DiscordBotHostedService(
             }
 
             var embed = new EmbedBuilder()
-                .WithTitle("Alpha Vantageカバレッジ")
+                .WithTitle("市場データカバレッジ")
                 .WithColor(Color.Teal)
                 .AddField("監視対象", coverage.TargetCount, true)
-                .AddField("シンボル解決済み", $"{coverage.AlphaVantageCoveredCount}/{coverage.TargetCount}", true)
+                .AddField("外部シンボル解決済み", $"{coverage.ProviderCoveredCount}/{coverage.TargetCount}", true)
                 .AddField("価格キャッシュあり", $"{coverage.PriceCachedCount}/{coverage.TargetCount}", true)
                 .AddField("日足キャッシュあり", $"{coverage.DailyCachedCount}/{coverage.TargetCount}", true)
                 .AddField("ニュースキャッシュあり", $"{coverage.NewsCachedCount}/{coverage.TargetCount}", true)
@@ -296,8 +297,9 @@ public sealed class DiscordBotHostedService(
         var limit = limitValue is long longValue ? (int?)Math.Clamp(longValue, 0, int.MaxValue) : null;
         var result = await service.PrefetchAsync(limit, CancellationToken.None);
         var messages = result.Messages.Count == 0 ? "なし" : string.Join("\n", result.Messages.Select(message => $"- {message}"));
+        var requestLogs = FormatRequestLogs(result.RequestLogs);
         var prefetchEmbed = new EmbedBuilder()
-            .WithTitle("Alpha Vantage事前取得")
+            .WithTitle("市場データ事前取得")
             .WithColor(result.Succeeded > 0 ? Color.Green : Color.Orange)
             .AddField("指定上限", result.RequestedLimit, true)
             .AddField("試行件数", result.Attempted, true)
@@ -306,6 +308,7 @@ public sealed class DiscordBotHostedService(
             .AddField("今日の使用数", result.UsedToday, true)
             .AddField("今日の残り", result.RemainingToday, true)
             .AddField("メッセージ", Truncate(messages, EmbedFieldLimit), false)
+            .AddField("リクエストログ", Truncate(requestLogs, EmbedFieldLimit), false)
             .WithCurrentTimestamp()
             .Build();
         await UpdateDeferredResponseAsync(command, prefetchEmbed);
@@ -334,6 +337,31 @@ public sealed class DiscordBotHostedService(
         }
 
         return value.Length <= maxLength ? value : value[..Math.Max(0, maxLength - 20)] + "\n...（省略）";
+    }
+
+    private static string FormatRequestLogs(IReadOnlyList<MarketDataRequestLogItem> requestLogs)
+    {
+        if (requestLogs.Count == 0)
+        {
+            return "なし";
+        }
+
+        var lines = requestLogs
+            .Take(10)
+            .Select(log =>
+            {
+                var status = log.Succeeded ? "OK" : "NG";
+                var error = string.IsNullOrWhiteSpace(log.ErrorMessage) ? "" : $" / {log.ErrorMessage}";
+                return $"- `{log.RequestedAt:HH:mm:ss}` {status} {log.Function}:{log.CacheKey}{error}";
+            })
+            .ToList();
+
+        if (requestLogs.Count > 10)
+        {
+            lines.Add($"- ほか {requestLogs.Count - 10} 件");
+        }
+
+        return string.Join("\n", lines);
     }
 
     private static string FormatWatchlistSource(object source) => source.ToString() switch

@@ -23,7 +23,15 @@ public sealed class NullMarketDataProvider : IMarketDataProvider, ICachedMarketD
         Task.FromResult(new MarketDataStatusResult(0, 0, 0, 0, Array.Empty<string>()));
 
     public Task<MarketDataPrefetchResult> PrefetchAsync(int? limit, CancellationToken cancellationToken) =>
-        Task.FromResult(new MarketDataPrefetchResult(limit ?? 0, 0, 0, 0, 0, 0, ["市場データ取得Providerは無効です。"]));
+        Task.FromResult(new MarketDataPrefetchResult(
+            limit ?? 0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            ["市場データ取得Providerは無効です。"],
+            Array.Empty<MarketDataRequestLogItem>()));
 
     public Task<MarketDataCoverageResult> GetCoverageAsync(CancellationToken cancellationToken) =>
         Task.FromResult(new MarketDataCoverageResult(0, 0, 0, 0, 0, 0, Array.Empty<MarketDataCoverageItem>()));
@@ -45,12 +53,6 @@ public sealed class NullExchangeRateProvider : IExchangeRateProvider
 {
     public Task<decimal?> GetRateAsync(string fromCurrency, string toCurrency, CancellationToken cancellationToken) =>
         Task.FromResult<decimal?>(null);
-}
-
-public sealed class DisabledAiAnalysisClient : IAiAnalysisClient
-{
-    public Task<AiAnalysisResultDto> AnalyzeAsync(AiAnalysisRequestDto request, CancellationToken cancellationToken) =>
-        Task.FromResult(new AiAnalysisResultDto(false, null, null, 0m, "", Array.Empty<string>(), Array.Empty<string>(), null, "AI分析は無効、または未設定です。"));
 }
 
 public sealed class RuleOnlyDiscordPublisher : IDiscordReportPublisher

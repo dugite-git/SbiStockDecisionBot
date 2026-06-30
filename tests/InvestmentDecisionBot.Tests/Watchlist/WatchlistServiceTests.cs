@@ -13,21 +13,33 @@ public sealed class WatchlistServiceTests
         using var db = new TestDb();
         var service = new WatchlistService(db.Context);
 
-        var add = await service.AddAsync("nvda", CancellationToken.None);
-        var duplicate = await service.AddAsync("NVDA", CancellationToken.None);
+        var add = await service.AddAsync("7203", CancellationToken.None);
+        var duplicate = await service.AddAsync("7203", CancellationToken.None);
         var list = await service.ListAsync(CancellationToken.None);
-        var remove = await service.RemoveAsync("NVDA", CancellationToken.None);
+        var remove = await service.RemoveAsync("7203", CancellationToken.None);
 
         Assert.True(add.Succeeded);
         Assert.True(duplicate.Succeeded);
         Assert.Single(list);
-        Assert.Equal("NVDA", list[0].Symbol);
+        Assert.Equal("7203", list[0].Symbol);
         Assert.True(remove.Succeeded);
         Assert.Empty(await service.ListAsync(CancellationToken.None));
 
-        var security = await db.Context.Securities.SingleAsync(s => s.Symbol == "NVDA");
-        Assert.Equal("US", security.Country);
-        Assert.Equal("USD", security.Currency);
+        var security = await db.Context.Securities.SingleAsync(s => s.Symbol == "7203");
+        Assert.Equal("JP", security.Country);
+        Assert.Equal("JPY", security.Currency);
+    }
+
+    [Fact]
+    public async Task RejectsNonJapaneseStockSymbols()
+    {
+        using var db = new TestDb();
+        var service = new WatchlistService(db.Context);
+
+        var result = await service.AddAsync("NVDA", CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Empty(await db.Context.Securities.ToListAsync());
     }
 
     [Fact]

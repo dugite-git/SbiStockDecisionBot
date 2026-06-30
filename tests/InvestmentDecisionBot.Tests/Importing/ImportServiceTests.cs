@@ -17,6 +17,7 @@ public sealed class ImportServiceTests
 銘柄コード,銘柄名称,保有株数,売却注文中,取得単価,現在値,取得金額,評価額,評価損益
 7203,トヨタ,100,0,2000,2500,200000,250000,+50000
 9432,NTT,10,0,150,145,1500,1450,-50
+NVDA,NVIDIA,1,0,100,120,100,120,+20
 """), "first.csv", CancellationToken.None);
         var second = await service.ImportSbiCsvAsync(StreamFrom("""
 銘柄コード,銘柄名称,保有株数,売却注文中,取得単価,現在値,取得金額,評価額,評価損益
@@ -25,6 +26,7 @@ public sealed class ImportServiceTests
 
         Assert.True(first.Succeeded);
         Assert.True(second.Succeeded);
+        Assert.Contains("1件スキップ", first.Message);
         Assert.Equal(1, second.SoldDetectedCount);
         Assert.Equal(1, second.WatchlistAddedCount);
         Assert.Equal(3, await db.Context.HoldingSnapshots.CountAsync());

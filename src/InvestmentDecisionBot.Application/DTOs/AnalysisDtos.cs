@@ -15,9 +15,9 @@ public sealed record AnalysisInput(
     IReadOnlyList<string> MissingData,
     IReadOnlyList<DailyPriceBar>? DailyPrices = null,
     IReadOnlyList<NewsSentimentData>? News = null,
+    FinancialSnapshotData? FinancialSnapshot = null,
     decimal? TotalPortfolioMarketValue = null,
     string? Currency = null,
-    decimal? UsdJpyRate = null,
     IReadOnlyList<string>? CacheWarnings = null);
 
 public sealed record ScoreResult(
@@ -49,13 +49,40 @@ public sealed record NewsSentimentData(
     decimal RelevanceScore,
     string? Summary);
 
+public sealed record FinancialSnapshotData(
+    DateOnly? DisclosureDate,
+    decimal? NetSales,
+    decimal? OperatingProfit,
+    decimal? OrdinaryProfit,
+    decimal? Profit,
+    decimal? Eps,
+    decimal? Bps,
+    decimal? TotalAssets,
+    decimal? NetAssets,
+    decimal? EquityRatio);
+
 public sealed record MarketDataStatusResult(int DailyLimit, int UsedToday, int RemainingToday, int PendingCount, IReadOnlyList<string> NextItems);
 
-public sealed record MarketDataPrefetchResult(int RequestedLimit, int Attempted, int Succeeded, int Skipped, int UsedToday, int RemainingToday, IReadOnlyList<string> Messages);
+public sealed record MarketDataPrefetchResult(
+    int RequestedLimit,
+    int Attempted,
+    int Succeeded,
+    int Skipped,
+    int UsedToday,
+    int RemainingToday,
+    IReadOnlyList<string> Messages,
+    IReadOnlyList<MarketDataRequestLogItem> RequestLogs);
+
+public sealed record MarketDataRequestLogItem(
+    DateTimeOffset RequestedAt,
+    string Function,
+    string CacheKey,
+    bool Succeeded,
+    string? ErrorMessage);
 
 public sealed record MarketDataCoverageResult(
     int TargetCount,
-    int AlphaVantageCoveredCount,
+    int ProviderCoveredCount,
     int PriceCachedCount,
     int DailyCachedCount,
     int NewsCachedCount,
@@ -66,8 +93,8 @@ public sealed record MarketDataCoverageItem(
     string Symbol,
     string Name,
     string TargetType,
-    string? AlphaVantageSymbol,
-    bool IsAlphaVantageCovered,
+    string? ExternalSymbol,
+    bool IsProviderCovered,
     bool HasFreshPrice,
     bool HasDailySeries,
     bool HasNewsSentiment,
@@ -81,24 +108,4 @@ public sealed record DecisionResult(BotDecision Decision, SellReasonType SellRea
 
 public sealed record MarketPriceResult(decimal? Price, string? Currency, bool UsedFallback, bool IsStale, string? ErrorMessage);
 
-public sealed record FinancialDataResult(bool HasData);
-
-public sealed record AiAnalysisRequestDto(
-    string Symbol,
-    string Name,
-    TargetType TargetType,
-    ScoreResult Score,
-    DecisionResult BotDecision,
-    IReadOnlyList<string> NewsSummaries,
-    IReadOnlyList<string> MissingData);
-
-public sealed record AiAnalysisResultDto(
-    bool Succeeded,
-    BotDecision? Decision,
-    SellReasonType? SellReasonType,
-    decimal Confidence,
-    string Reason,
-    IReadOnlyList<string> Risks,
-    IReadOnlyList<string> WatchPoints,
-    string? RawJson,
-    string? ErrorMessage);
+public sealed record FinancialDataResult(bool HasData, FinancialSnapshotData? Snapshot = null, string? ErrorMessage = null);

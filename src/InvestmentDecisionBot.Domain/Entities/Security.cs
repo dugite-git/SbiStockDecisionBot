@@ -10,9 +10,9 @@ public sealed class Security
     public string? Market { get; set; }
     public string? Country { get; set; }
     public string? Currency { get; set; }
-    public string? AlphaVantageSymbol { get; set; }
-    public DateTimeOffset? AlphaVantageSymbolResolvedAt { get; set; }
-    public string? AlphaVantageSymbolResolutionError { get; set; }
+    public string? ExternalSymbol { get; set; }
+    public DateTimeOffset? ExternalSymbolResolvedAt { get; set; }
+    public string? ExternalSymbolResolutionError { get; set; }
     public SecurityType SecurityType { get; set; } = SecurityType.Stock;
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;

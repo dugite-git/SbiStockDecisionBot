@@ -1,4 +1,4 @@
-using InvestmentDecisionBot.Application.Reporting;
+﻿using InvestmentDecisionBot.Application.Reporting;
 using InvestmentDecisionBot.Application.Scoring;
 using InvestmentDecisionBot.Domain.Entities;
 using InvestmentDecisionBot.Domain.Enums;
@@ -12,7 +12,7 @@ public sealed class ReportServiceTests
     public async Task GeneratesReportWithWarningsAndSavesDailyReport()
     {
         using var db = new TestDb();
-        var security = new Security { Symbol = "7203", Name = "Toyota", SecurityType = SecurityType.Stock };
+        var security = new Security { Symbol = "7203", Name = "Toyota", SecurityType = SecurityType.Stock, Country = "JP", Currency = "JPY" };
         db.Context.Securities.Add(security);
         db.Context.Holdings.Add(new Holding
         {
@@ -28,22 +28,22 @@ public sealed class ReportServiceTests
         await db.Context.SaveChangesAsync();
 
         var marketData = new FakeMarketDataProvider();
-        var service = new ReportService(db.Context, new ScoreCalculator(), new BotDecisionResolver(), marketData, marketData, new FakeAiAnalysisClient(false), new FakeDiscordPublisher(false), new NoopSystemLogService());
+        var service = new ReportService(db.Context, new ScoreCalculator(), new BotDecisionResolver(), marketData, marketData, new FakeFinancialDataProvider(), new FakeDiscordPublisher(false), new NoopSystemLogService());
         var report = await service.GenerateDailyReportAsync(postToDiscord: true, CancellationToken.None);
 
         Assert.False(report.Succeeded);
-        Assert.Contains("投資判断の参考情報", report.Content);
-        Assert.Contains("AI分析: 未実行または失敗", report.Content);
-        Assert.DoesNotContain("買うべき", report.Content);
+        Assert.Contains("7203", report.Content);
+        Assert.DoesNotContain("AI", report.Content);
+        Assert.Empty(await db.Context.AiAnalysisLogs.ToListAsync());
         Assert.Single(await db.Context.DailyReports.ToListAsync());
         Assert.False((await db.Context.DailyReports.SingleAsync()).PostedToDiscord);
     }
 
     [Fact]
-    public async Task UsesMarketDataPriceForHoldingAnalysisAndSavesSnapshot()
+    public async Task PrefersImportedSbiPriceForHoldingAnalysisAndSavesProviderSnapshot()
     {
         using var db = new TestDb();
-        var security = new Security { Symbol = "7203", Name = "Toyota", SecurityType = SecurityType.Stock, Currency = "JPY" };
+        var security = new Security { Symbol = "7203", Name = "Toyota", SecurityType = SecurityType.Stock, Country = "JP", Currency = "JPY" };
         db.Context.Securities.Add(security);
         db.Context.Holdings.Add(new Holding
         {
@@ -59,12 +59,12 @@ public sealed class ReportServiceTests
         await db.Context.SaveChangesAsync();
 
         var marketData = new FakeMarketDataProvider(3000m);
-        var service = new ReportService(db.Context, new ScoreCalculator(), new BotDecisionResolver(), marketData, marketData, new FakeAiAnalysisClient(false), new FakeDiscordPublisher(true), new NoopSystemLogService());
+        var service = new ReportService(db.Context, new ScoreCalculator(), new BotDecisionResolver(), marketData, marketData, new FakeFinancialDataProvider(), new FakeDiscordPublisher(true), new NoopSystemLogService());
         var report = await service.GenerateDailyReportAsync(postToDiscord: false, CancellationToken.None);
 
         Assert.True(report.Succeeded);
         var analysis = await db.Context.AnalysisResults.SingleAsync();
-        Assert.Equal(49.88m, analysis.TotalScore);
+        Assert.Equal(50.05m, analysis.TotalScore);
         Assert.Equal(BotDecision.Hold, analysis.BotDecision);
 
         var snapshot = await db.Context.MarketPriceSnapshots.SingleAsync();
@@ -77,7 +77,7 @@ public sealed class ReportServiceTests
     public async Task ReusesSameDayMarketPriceSnapshotWithoutCallingProvider()
     {
         using var db = new TestDb();
-        var security = new Security { Symbol = "7203", Name = "Toyota", SecurityType = SecurityType.Stock, Currency = "JPY" };
+        var security = new Security { Symbol = "7203", Name = "Toyota", SecurityType = SecurityType.Stock, Country = "JP", Currency = "JPY" };
         db.Context.Securities.Add(security);
         db.Context.Holdings.Add(new Holding
         {
@@ -103,7 +103,7 @@ public sealed class ReportServiceTests
         await db.Context.SaveChangesAsync();
 
         var marketData = new FakeMarketDataProvider(9999m);
-        var service = new ReportService(db.Context, new ScoreCalculator(), new BotDecisionResolver(), marketData, marketData, new FakeAiAnalysisClient(false), new FakeDiscordPublisher(true), new NoopSystemLogService());
+        var service = new ReportService(db.Context, new ScoreCalculator(), new BotDecisionResolver(), marketData, marketData, new FakeFinancialDataProvider(), new FakeDiscordPublisher(true), new NoopSystemLogService());
         var report = await service.GenerateDailyReportAsync(postToDiscord: false, CancellationToken.None);
 
         Assert.True(report.Succeeded);
@@ -111,7 +111,7 @@ public sealed class ReportServiceTests
         Assert.Single(await db.Context.MarketPriceSnapshots.ToListAsync());
 
         var analysis = await db.Context.AnalysisResults.SingleAsync();
-        Assert.Equal(49.88m, analysis.TotalScore);
+        Assert.Equal(50.05m, analysis.TotalScore);
         Assert.Equal(BotDecision.Hold, analysis.BotDecision);
     }
 
@@ -119,7 +119,7 @@ public sealed class ReportServiceTests
     public async Task DoesNotReuseSameDayEmptyMarketPriceSnapshot()
     {
         using var db = new TestDb();
-        var security = new Security { Symbol = "7203", Name = "Toyota", SecurityType = SecurityType.Stock, Currency = "JPY" };
+        var security = new Security { Symbol = "7203", Name = "Toyota", SecurityType = SecurityType.Stock, Country = "JP", Currency = "JPY" };
         db.Context.Securities.Add(security);
         db.Context.Holdings.Add(new Holding
         {
@@ -146,7 +146,7 @@ public sealed class ReportServiceTests
         await db.Context.SaveChangesAsync();
 
         var marketData = new FakeMarketDataProvider(3000m);
-        var service = new ReportService(db.Context, new ScoreCalculator(), new BotDecisionResolver(), marketData, marketData, new FakeAiAnalysisClient(false), new FakeDiscordPublisher(true), new NoopSystemLogService());
+        var service = new ReportService(db.Context, new ScoreCalculator(), new BotDecisionResolver(), marketData, marketData, new FakeFinancialDataProvider(), new FakeDiscordPublisher(true), new NoopSystemLogService());
         var report = await service.GenerateDailyReportAsync(postToDiscord: false, CancellationToken.None);
 
         Assert.True(report.Succeeded);
@@ -156,5 +156,34 @@ public sealed class ReportServiceTests
         var latestSnapshot = (await db.Context.MarketPriceSnapshots.ToListAsync()).OrderByDescending(snapshot => snapshot.FetchedAt).First();
         Assert.Equal(3000m, latestSnapshot.Price);
         Assert.False(latestSnapshot.UsedFallback);
+    }
+
+    [Fact]
+    public async Task SkipsExistingUsStocksInReports()
+    {
+        using var db = new TestDb();
+        var usSecurity = new Security { Symbol = "NVDA", Name = "NVIDIA", SecurityType = SecurityType.Stock, Country = "US", Currency = "USD" };
+        db.Context.Securities.Add(usSecurity);
+        db.Context.Holdings.Add(new Holding
+        {
+            Security = usSecurity,
+            Quantity = 1,
+            AverageAcquisitionPrice = 100,
+            AcquisitionAmount = 100,
+            ImportedCurrentPrice = 120,
+            ImportedMarketValue = 120,
+            ImportedUnrealizedProfitLoss = 20,
+            IsActive = true
+        });
+        await db.Context.SaveChangesAsync();
+
+        var marketData = new FakeMarketDataProvider(3000m);
+        var service = new ReportService(db.Context, new ScoreCalculator(), new BotDecisionResolver(), marketData, marketData, new FakeFinancialDataProvider(), new FakeDiscordPublisher(true), new NoopSystemLogService());
+        var report = await service.GenerateDailyReportAsync(postToDiscord: false, CancellationToken.None);
+
+        Assert.True(report.Succeeded);
+        Assert.Equal(0, report.AnalysisCount);
+        Assert.Empty(await db.Context.AnalysisResults.ToListAsync());
+        Assert.Equal(0, marketData.CallCount);
     }
 }

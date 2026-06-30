@@ -439,14 +439,14 @@ namespace InvestmentDecisionBot.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
-                    b.Property<string>("AlphaVantageSymbol")
+                    b.Property<string>("ExternalSymbol")
                         .HasMaxLength(64)
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("AlphaVantageSymbolResolutionError")
+                    b.Property<string>("ExternalSymbolResolutionError")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset?>("AlphaVantageSymbolResolvedAt")
+                    b.Property<DateTimeOffset?>("ExternalSymbolResolvedAt")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Country")

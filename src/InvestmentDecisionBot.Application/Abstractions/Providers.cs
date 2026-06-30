@@ -29,8 +29,3 @@ public interface IExchangeRateProvider
 {
     Task<decimal?> GetRateAsync(string fromCurrency, string toCurrency, CancellationToken cancellationToken);
 }
-
-public interface IAiAnalysisClient
-{
-    Task<AiAnalysisResultDto> AnalyzeAsync(AiAnalysisRequestDto request, CancellationToken cancellationToken);
-}

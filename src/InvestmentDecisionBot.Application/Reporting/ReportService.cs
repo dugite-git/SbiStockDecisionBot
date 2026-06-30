@@ -1,5 +1,4 @@
 using System.Text;
-using System.Text.Json;
 using InvestmentDecisionBot.Application.Abstractions;
 using InvestmentDecisionBot.Application.DTOs;
 using InvestmentDecisionBot.Domain.Entities;
@@ -14,7 +13,7 @@ public sealed class ReportService(
     IBotDecisionResolver decisionResolver,
     IMarketDataProvider marketData,
     ICachedMarketDataProvider cachedMarketData,
-    IAiAnalysisClient ai,
+    IFinancialDataProvider financialData,
     IDiscordReportPublisher publisher,
     ISystemLogService logs) : IReportService
 {
@@ -22,11 +21,15 @@ public sealed class ReportService(
     {
         var now = DateTimeOffset.UtcNow;
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        var holdings = await db.Holdings.Include(h => h.Security).Where(h => h.IsActive).OrderBy(h => h.Security.Symbol).ToListAsync(cancellationToken);
-        var watchlist = await db.WatchlistItems.Include(w => w.Security).Where(w => w.IsActive).OrderBy(w => w.Security.Symbol).ToListAsync(cancellationToken);
+        var holdings = (await db.Holdings.Include(h => h.Security).Where(h => h.IsActive).OrderBy(h => h.Security.Symbol).ToListAsync(cancellationToken))
+            .Where(h => IsJapaneseStock(h.Security))
+            .ToList();
+        var watchlist = (await db.WatchlistItems.Include(w => w.Security).Where(w => w.IsActive).OrderBy(w => w.Security.Symbol).ToListAsync(cancellationToken))
+            .Where(w => IsJapaneseStock(w.Security))
+            .ToList();
         var holdingIds = holdings.Select(h => h.SecurityId).ToHashSet();
 
-        var analyses = new List<(AnalysisInput Input, ScoreResult Score, DecisionResult Decision, AiAnalysisResultDto Ai)>();
+        var analyses = new List<(AnalysisInput Input, ScoreResult Score, DecisionResult Decision)>();
         var totalPortfolioMarketValue = holdings
             .Select(holding => holding.ImportedMarketValue ?? holding.ImportedCurrentPrice * holding.Quantity)
             .Where(value => value is > 0m)
@@ -72,7 +75,7 @@ public sealed class ReportService(
         return new ReportResult(postResult?.Succeeded ?? true, content, analyses.Count, postResult?.MessageId, postResult?.ErrorMessage);
     }
 
-    private static string BuildReportContent(IReadOnlyList<(AnalysisInput Input, ScoreResult Score, DecisionResult Decision, AiAnalysisResultDto Ai)> analyses)
+    private static string BuildReportContent(IReadOnlyList<(AnalysisInput Input, ScoreResult Score, DecisionResult Decision)> analyses)
     {
         var lines = new StringBuilder();
         lines.AppendLine("本日の投資判断レポート");
@@ -121,15 +124,17 @@ public sealed class ReportService(
             missingData.Add("market");
         }
 
-        var currentPrice = latestPrice.Price ?? holding.ImportedCurrentPrice;
+        var currentPrice = holding.ImportedCurrentPrice ?? latestPrice.Price;
         var marketValue = currentPrice is null ? holding.ImportedMarketValue : decimal.Round(currentPrice.Value * holding.Quantity, 4);
         var unrealizedProfitLoss = marketValue is null
             ? holding.ImportedUnrealizedProfitLoss
             : decimal.Round(marketValue.Value - holding.AverageAcquisitionPrice * holding.Quantity, 4);
         var dailyPrices = await cachedMarketData.GetCachedDailyPricesAsync(holding.Security, cancellationToken);
         var news = await cachedMarketData.GetCachedNewsAsync(holding.Security, cancellationToken);
+        var financial = await financialData.GetFinancialDataAsync(holding.Security, cancellationToken);
         if (dailyPrices.Count == 0) missingData.Add("daily");
         if (news.Count == 0) missingData.Add("news");
+        if (!financial.HasData) missingData.Add("financial");
 
         return new AnalysisInput(
             holding.SecurityId,
@@ -144,6 +149,7 @@ public sealed class ReportService(
             missingData,
             dailyPrices,
             news,
+            financial.Snapshot,
             totalPortfolioMarketValue,
             holding.Security.Currency);
     }
@@ -159,8 +165,10 @@ public sealed class ReportService(
 
         var dailyPrices = await cachedMarketData.GetCachedDailyPricesAsync(item.Security, cancellationToken);
         var news = await cachedMarketData.GetCachedNewsAsync(item.Security, cancellationToken);
+        var financial = await financialData.GetFinancialDataAsync(item.Security, cancellationToken);
         if (dailyPrices.Count == 0) missingData.Add("daily");
         if (news.Count == 0) missingData.Add("news");
+        if (!financial.HasData) missingData.Add("financial");
 
         return new AnalysisInput(
             item.SecurityId,
@@ -175,6 +183,7 @@ public sealed class ReportService(
             missingData,
             dailyPrices,
             news,
+            financial.Snapshot,
             null,
             item.Security.Currency);
     }
@@ -232,16 +241,10 @@ public sealed class ReportService(
         return result;
     }
 
-    private async Task<(AnalysisInput Input, ScoreResult Score, DecisionResult Decision, AiAnalysisResultDto Ai)> AnalyzeAsync(AnalysisInput input, CancellationToken cancellationToken)
+    private async Task<(AnalysisInput Input, ScoreResult Score, DecisionResult Decision)> AnalyzeAsync(AnalysisInput input, CancellationToken cancellationToken)
     {
         var score = scoreCalculator.Calculate(input);
         var decision = decisionResolver.Resolve(input, score);
-        var newsSummaries = (input.News ?? Array.Empty<NewsSentimentData>())
-            .Select(news => string.IsNullOrWhiteSpace(news.Summary) ? news.Title : $"{news.Title}: {news.Summary}")
-            .ToList();
-        var aiRequest = new AiAnalysisRequestDto(input.Symbol, input.Name, input.TargetType, score, decision, newsSummaries, score.MissingData);
-        var aiResult = await ai.AnalyzeAsync(aiRequest, cancellationToken);
-        var conflict = aiResult.Succeeded && aiResult.Decision is not null && aiResult.Decision.Value != decision.Decision;
 
         var analysis = new AnalysisResult
         {
@@ -257,35 +260,22 @@ public sealed class ReportService(
             BotDecision = decision.Decision,
             SellReasonType = decision.SellReasonType,
             Confidence = decision.Confidence,
-            Reason = BuildReason(decision, score, aiResult),
+            Reason = BuildReason(decision, score),
             MissingData = string.Join(",", score.MissingData),
-            DecisionConflict = conflict,
+            DecisionConflict = false,
             CreatedAt = DateTimeOffset.UtcNow
         };
         db.AnalysisResults.Add(analysis);
-        db.AiAnalysisLogs.Add(new AiAnalysisLog
-        {
-            AnalysisResult = analysis,
-            RequestJson = JsonSerializer.Serialize(aiRequest),
-            ResponseJson = aiResult.RawJson,
-            Model = "configured",
-            Succeeded = aiResult.Succeeded,
-            ErrorMessage = aiResult.ErrorMessage,
-            CreatedAt = DateTimeOffset.UtcNow
-        });
+        await Task.CompletedTask;
 
-        return (input, score, decision, aiResult);
+        return (input, score, decision);
     }
 
-    private static void AppendAnalysis(StringBuilder lines, (AnalysisInput Input, ScoreResult Score, DecisionResult Decision, AiAnalysisResultDto Ai) entry)
+    private static void AppendAnalysis(StringBuilder lines, (AnalysisInput Input, ScoreResult Score, DecisionResult Decision) entry)
     {
         var rate = entry.Score.UnrealizedProfitLossRate is null ? "N/A" : $"{entry.Score.UnrealizedProfitLossRate:+0.##;-0.##;0}%";
         lines.AppendLine($"- {entry.Input.Symbol} {entry.Input.Name}: {entry.Decision.Decision} / スコア {entry.Score.TotalScore:0.##} / 含み損益率 {rate}");
         lines.AppendLine($"  理由: {entry.Decision.Reason}");
-        if (!entry.Ai.Succeeded)
-        {
-            lines.AppendLine("  AI分析: 未実行または失敗");
-        }
 
         foreach (var warning in (entry.Score.Warnings ?? Array.Empty<string>()).Take(3))
         {
@@ -293,7 +283,7 @@ public sealed class ReportService(
         }
     }
 
-    private static string BuildReason(DecisionResult decision, ScoreResult score, AiAnalysisResultDto aiResult)
+    private static string BuildReason(DecisionResult decision, ScoreResult score)
     {
         var details = new List<string> { decision.Reason };
         if (score.Reasons is not null && score.Reasons.Count > 0)
@@ -306,13 +296,15 @@ public sealed class ReportService(
             details.Add("警告: " + string.Join(" ", score.Warnings.Take(3)));
         }
 
-        if (aiResult.Succeeded && !string.IsNullOrWhiteSpace(aiResult.Reason))
-        {
-            details.Add($"AI補足: {aiResult.Reason}");
-        }
-
         return string.Join(" ", details);
     }
+
+    private static bool IsJapaneseStock(Security security) =>
+        security.SecurityType == SecurityType.Stock &&
+        security.Symbol.Length == 4 &&
+        security.Symbol.All(char.IsDigit) &&
+        (string.IsNullOrWhiteSpace(security.Country) || string.Equals(security.Country, "JP", StringComparison.OrdinalIgnoreCase)) &&
+        (string.IsNullOrWhiteSpace(security.Currency) || string.Equals(security.Currency, "JPY", StringComparison.OrdinalIgnoreCase));
 
     private static bool IsImportant(BotDecision decision) =>
         decision is BotDecision.TakeProfit or BotDecision.PartialTakeProfit or BotDecision.StopLoss or BotDecision.PartialStopLoss or BotDecision.NewBuy;
