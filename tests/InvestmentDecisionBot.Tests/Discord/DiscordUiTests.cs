@@ -36,6 +36,29 @@ public sealed class DiscordUiTests
         Assert.Equal("3/3", DiscordFormatters.PageLabel(2, 3));
     }
 
+    [Theory]
+    [InlineData(BotDecision.TakeProfit, "利確候補")]
+    [InlineData(BotDecision.PartialTakeProfit, "一部利確候補")]
+    [InlineData(BotDecision.StopLoss, "損切り候補")]
+    [InlineData(BotDecision.PartialStopLoss, "一部損切り候補")]
+    [InlineData(BotDecision.NewBuy, "新規買い候補")]
+    [InlineData(BotDecision.BuyMore, "買い増し候補")]
+    [InlineData(BotDecision.Hold, "保有継続")]
+    [InlineData(BotDecision.Skip, "見送り")]
+    [InlineData(BotDecision.AnalysisFailed, "分析失敗")]
+    public void FormatDecisionLocalizesAllBotDecisions(BotDecision decision, string expected)
+    {
+        Assert.Contains(expected, DiscordFormatters.FormatDecision(decision));
+    }
+
+    [Fact]
+    public void FormatJstReturnsJstText()
+    {
+        var formatted = DiscordFormatters.FormatJst(DateTimeOffset.UtcNow);
+
+        Assert.Contains("JST", formatted);
+    }
+
     [Fact]
     public void CoverageMissingDetectsAnyMissingData()
     {
@@ -67,6 +90,22 @@ public sealed class DiscordUiTests
             60m,
             [],
             []);
+        var skipped = new ReportDecisionSummaryItem(
+            "6758",
+            "Sony",
+            TargetType.Watchlist,
+            BotDecision.Skip,
+            50m,
+            null,
+            0.65m,
+            "見送りです。",
+            50m,
+            50m,
+            50m,
+            50m,
+            50m,
+            [],
+            []);
         var result = new ReportResult(
             true,
             "# report",
@@ -78,8 +117,8 @@ public sealed class DiscordUiTests
             null,
             null,
             [important],
-            [important],
-            new ReportDecisionCounts(1, 0, 0, 0, 0, 1, 1),
+            [important, skipped],
+            new ReportDecisionCounts(1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1),
             ["news"]);
 
         var summary = DiscordFormatters.BuildReportSummary(result);
@@ -87,6 +126,8 @@ public sealed class DiscordUiTests
         Assert.Contains("重要判断: 1件", summary);
         Assert.Contains("`7203` Toyota", summary);
         Assert.Contains("SubScores: F 72", summary);
+        Assert.Contains("見送り", summary);
+        Assert.Contains("監視継続", summary);
         Assert.Contains("不足データ: news", summary);
     }
 }

@@ -209,15 +209,41 @@ public sealed class ReportService(
                 entry.Score.Warnings ?? Array.Empty<string>()))
             .ToList();
 
-    private static ReportDecisionCounts BuildDecisionCounts(IReadOnlyList<ReportDecisionSummaryItem> items) =>
-        new(
-            items.Count(item => item.Decision == BotDecision.TakeProfit),
-            items.Count(item => item.Decision == BotDecision.PartialTakeProfit),
-            items.Count(item => item.Decision == BotDecision.StopLoss),
-            items.Count(item => item.Decision == BotDecision.PartialStopLoss),
-            items.Count(item => item.Decision == BotDecision.NewBuy),
-            items.Count(item => item.Decision == BotDecision.Hold),
+    private static ReportDecisionCounts BuildDecisionCounts(IReadOnlyList<ReportDecisionSummaryItem> items)
+    {
+        var takeProfit = items.Count(item => item.Decision == BotDecision.TakeProfit);
+        var partialTakeProfit = items.Count(item => item.Decision == BotDecision.PartialTakeProfit);
+        var stopLoss = items.Count(item => item.Decision == BotDecision.StopLoss);
+        var partialStopLoss = items.Count(item => item.Decision == BotDecision.PartialStopLoss);
+        var newBuy = items.Count(item => item.Decision == BotDecision.NewBuy);
+        var buyMore = items.Count(item => item.Decision == BotDecision.BuyMore);
+        var hold = items.Count(item => item.Decision == BotDecision.Hold);
+        var skip = items.Count(item => item.Decision == BotDecision.Skip);
+        var analysisFailed = items.Count(item => item.Decision == BotDecision.AnalysisFailed);
+        var knownTotal =
+            takeProfit
+            + partialTakeProfit
+            + stopLoss
+            + partialStopLoss
+            + newBuy
+            + buyMore
+            + hold
+            + skip
+            + analysisFailed;
+
+        return new ReportDecisionCounts(
+            takeProfit,
+            partialTakeProfit,
+            stopLoss,
+            partialStopLoss,
+            newBuy,
+            buyMore,
+            hold,
+            skip,
+            analysisFailed,
+            Math.Max(0, items.Count - knownTotal),
             items.Count(item => IsImportant(item.Decision)));
+    }
 
     private async Task<AnalysisInput> BuildHoldingInputAsync(Holding holding, decimal totalPortfolioMarketValue, CancellationToken cancellationToken)
     {

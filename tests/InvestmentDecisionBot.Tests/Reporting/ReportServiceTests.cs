@@ -379,5 +379,46 @@ public sealed class ReportServiceTests
         Assert.Equal(BotDecision.StopLoss, important.Decision);
         Assert.NotNull(report.Items);
         Assert.Single(report.Items);
+        Assert.Equal(report.AnalysisCount, SumDecisionCounts(report.DecisionCounts));
     }
+
+    [Fact]
+    public async Task DecisionCountsIncludesWatchlistSkipAndMatchesAnalysisCount()
+    {
+        using var db = new TestDb();
+        var security = new Security { Symbol = "6758", Name = "Sony", SecurityType = SecurityType.Stock, Country = "JP", Currency = "JPY" };
+        db.Context.Securities.Add(security);
+        db.Context.WatchlistItems.Add(new WatchlistItem
+        {
+            Security = security,
+            Source = WatchlistSource.Manual,
+            IsActive = true
+        });
+        await db.Context.SaveChangesAsync();
+
+        var marketData = new FakeMarketDataProvider(100m);
+        var service = TestServices.CreateReportService(db.Context, marketData, marketData);
+        var report = await service.GenerateDailyReportAsync(postToDiscord: false, CancellationToken.None);
+
+        Assert.True(report.Succeeded);
+        Assert.NotNull(report.DecisionCounts);
+        Assert.Equal(1, report.AnalysisCount);
+        Assert.Equal(1, report.DecisionCounts.Skip);
+        Assert.Equal(0, report.DecisionCounts.ImportantTotal);
+        Assert.Equal(report.AnalysisCount, SumDecisionCounts(report.DecisionCounts));
+    }
+
+    private static int SumDecisionCounts(ReportDecisionCounts? counts) =>
+        counts is null
+            ? 0
+            : counts.TakeProfit
+              + counts.PartialTakeProfit
+              + counts.StopLoss
+              + counts.PartialStopLoss
+              + counts.NewBuy
+              + counts.BuyMore
+              + counts.Hold
+              + counts.Skip
+              + counts.AnalysisFailed
+              + counts.Other;
 }

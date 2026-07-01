@@ -12,7 +12,7 @@ public static class DiscordFormatters
     public const int CoveragePageSize = 10;
     public const int ArticlePageSize = 5;
 
-    private static readonly TimeZoneInfo TokyoTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Asia/Tokyo");
+    private static readonly TimeZoneInfo TokyoTimeZone = FindTokyoTimeZone();
 
     public static string FormatJst(DateTimeOffset? value)
     {
@@ -23,6 +23,29 @@ public static class DiscordFormatters
 
         var jst = TimeZoneInfo.ConvertTime(value.Value, TokyoTimeZone);
         return jst.ToString("yyyy-MM-dd HH:mm 'JST'");
+    }
+
+    private static TimeZoneInfo FindTokyoTimeZone()
+    {
+        try
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById("Asia/Tokyo");
+        }
+        catch (Exception ex) when (ex is TimeZoneNotFoundException or InvalidTimeZoneException)
+        {
+            try
+            {
+                return TimeZoneInfo.FindSystemTimeZoneById("Tokyo Standard Time");
+            }
+            catch (Exception fallbackEx) when (fallbackEx is TimeZoneNotFoundException or InvalidTimeZoneException)
+            {
+                return TimeZoneInfo.CreateCustomTimeZone(
+                    "JST",
+                    TimeSpan.FromHours(9),
+                    "Japan Standard Time",
+                    "Japan Standard Time");
+            }
+        }
     }
 
     public static string Truncate(string? value, int maxLength)
@@ -70,8 +93,11 @@ public static class DiscordFormatters
         BotDecision.StopLoss => "損切り候補",
         BotDecision.PartialStopLoss => "一部損切り候補",
         BotDecision.NewBuy => "新規買い候補",
-        BotDecision.Hold => "保留",
-        _ => decision.ToString()
+        BotDecision.BuyMore => "買い増し候補",
+        BotDecision.Hold => "保有継続",
+        BotDecision.Skip => "見送り / 監視継続",
+        BotDecision.AnalysisFailed => "分析失敗",
+        _ => "その他"
     };
 
     public static string FormatSubScores(ReportDecisionSummaryItem item) =>
@@ -148,13 +174,17 @@ public static class DiscordFormatters
 
     public static string BuildReportSummary(ReportResult result)
     {
-        var counts = result.DecisionCounts ?? new ReportDecisionCounts(0, 0, 0, 0, 0, 0, 0);
+        var counts = result.DecisionCounts ?? new ReportDecisionCounts(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
         var lines = new StringBuilder();
         lines.AppendLine($"分析対象: {result.AnalysisCount}件");
         lines.AppendLine($"重要判断: {counts.ImportantTotal}件");
         lines.AppendLine($"利確候補: {counts.TakeProfit}件 / 一部利確候補: {counts.PartialTakeProfit}件");
         lines.AppendLine($"損切り候補: {counts.StopLoss}件 / 一部損切り候補: {counts.PartialStopLoss}件");
-        lines.AppendLine($"新規買い候補: {counts.NewBuy}件 / 保留: {counts.Hold}件");
+        lines.AppendLine($"新規買い候補: {counts.NewBuy}件 / 買い増し候補: {counts.BuyMore}件");
+        lines.AppendLine($"保有継続: {counts.Hold}件");
+        lines.AppendLine($"見送り / 監視継続: {counts.Skip}件");
+        lines.AppendLine($"分析失敗: {counts.AnalysisFailed}件");
+        lines.AppendLine($"その他: {counts.Other}件");
 
         var important = result.ImportantItems ?? Array.Empty<ReportDecisionSummaryItem>();
         if (important.Count == 0)

@@ -40,7 +40,11 @@ public sealed record ReportDecisionCounts(
     int StopLoss,
     int PartialStopLoss,
     int NewBuy,
+    int BuyMore,
     int Hold,
+    int Skip,
+    int AnalysisFailed,
+    int Other,
     int ImportantTotal);
 
 public sealed record DiscordPostResult(bool Succeeded, string? MessageId, string? ErrorMessage);

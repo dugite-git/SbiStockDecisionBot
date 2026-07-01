@@ -7,14 +7,14 @@ public static class DiscordComponentFactory
     public static MessageComponent ImportNextActions() =>
         new ComponentBuilder()
             .WithButton("監視対象を見る", "watch:targets:page:0", ButtonStyle.Secondary)
-            .WithButton("市場データ取得", "hint:marketdata:prefetch", ButtonStyle.Primary)
-            .WithButton("レポート生成", "hint:report", ButtonStyle.Primary)
+            .WithButton("市場データ取得の手順", "hint:marketdata:prefetch", ButtonStyle.Primary)
+            .WithButton("レポート生成の手順", "hint:report", ButtonStyle.Primary)
             .Build();
 
     public static MessageComponent WatchActions(string symbol) =>
         new ComponentBuilder()
-            .WithButton("市場データを見る", $"hint:marketdata:data:{symbol}", ButtonStyle.Secondary)
-            .WithButton("記事を見る", $"hint:marketdata:articles:{symbol}", ButtonStyle.Secondary)
+            .WithButton("市場データ確認の手順", $"hint:marketdata:data:{symbol}", ButtonStyle.Secondary)
+            .WithButton("記事確認の手順", $"hint:marketdata:articles:{symbol}", ButtonStyle.Secondary)
             .WithButton("監視対象一覧", "watch:targets:page:0", ButtonStyle.Secondary)
             .Build();
 
@@ -30,12 +30,12 @@ public static class DiscordComponentFactory
             .WithButton("前へ", $"watch:targets:{FilterSegment(unresolvedOnly)}:page:{Math.Max(0, page - 1)}", ButtonStyle.Secondary, disabled: page <= 0)
             .WithButton("次へ", $"watch:targets:{FilterSegment(unresolvedOnly)}:page:{page + 1}", ButtonStyle.Secondary, disabled: page >= totalPages - 1)
             .WithButton(unresolvedOnly ? "全件表示" : "未解決のみ", $"watch:targets:{FilterSegment(!unresolvedOnly)}:page:0", ButtonStyle.Secondary)
-            .WithButton("市場データ取得", "hint:marketdata:prefetch", ButtonStyle.Primary)
+            .WithButton("市場データ取得の手順", "hint:marketdata:prefetch", ButtonStyle.Primary)
             .Build();
 
     public static MessageComponent MarketDataStatus() =>
         new ComponentBuilder()
-            .WithButton("事前取得する", "hint:marketdata:prefetch", ButtonStyle.Primary)
+            .WithButton("事前取得の手順", "hint:marketdata:prefetch", ButtonStyle.Primary)
             .WithButton("カバレッジを見る", "marketdata:coverage:all:page:0", ButtonStyle.Secondary)
             .Build();
 
@@ -44,27 +44,27 @@ public static class DiscordComponentFactory
             .WithButton("前へ", $"marketdata:coverage:{CoverageFilterSegment(missingOnly)}:page:{Math.Max(0, page - 1)}", ButtonStyle.Secondary, disabled: page <= 0)
             .WithButton("次へ", $"marketdata:coverage:{CoverageFilterSegment(missingOnly)}:page:{page + 1}", ButtonStyle.Secondary, disabled: page >= totalPages - 1)
             .WithButton(missingOnly ? "全件表示" : "不足のみ", $"marketdata:coverage:{CoverageFilterSegment(!missingOnly)}:page:0", ButtonStyle.Secondary)
-            .WithButton("事前取得", "hint:marketdata:prefetch", ButtonStyle.Primary)
+            .WithButton("事前取得の手順", "hint:marketdata:prefetch", ButtonStyle.Primary)
             .Build();
 
     public static MessageComponent MarketDataArticles(string symbol, int page, int totalPages, int limit) =>
         new ComponentBuilder()
             .WithButton("前へ", $"marketdata:articles:{symbol}:limit:{limit}:page:{Math.Max(0, page - 1)}", ButtonStyle.Secondary, disabled: page <= 0)
             .WithButton("次へ", $"marketdata:articles:{symbol}:limit:{limit}:page:{page + 1}", ButtonStyle.Secondary, disabled: page >= totalPages - 1)
-            .WithButton("事前取得", "hint:marketdata:prefetch", ButtonStyle.Primary)
+            .WithButton("事前取得の手順", "hint:marketdata:prefetch", ButtonStyle.Primary)
             .Build();
 
     public static MessageComponent MarketDataDetail(string symbol) =>
         new ComponentBuilder()
             .WithButton("記事を見る", $"marketdata:articles:{symbol}:limit:10:page:0", ButtonStyle.Secondary)
-            .WithButton("再取得", "hint:marketdata:prefetch", ButtonStyle.Secondary)
-            .WithButton("レポート生成", "hint:report", ButtonStyle.Primary)
+            .WithButton("再取得の手順", "hint:marketdata:prefetch", ButtonStyle.Secondary)
+            .WithButton("レポート生成の手順", "hint:report", ButtonStyle.Primary)
             .Build();
 
     public static MessageComponent PrefetchResult() =>
         new ComponentBuilder()
             .WithButton("カバレッジを見る", "marketdata:coverage:all:page:0", ButtonStyle.Secondary)
-            .WithButton("レポート生成", "hint:report", ButtonStyle.Primary)
+            .WithButton("レポート生成の手順", "hint:report", ButtonStyle.Primary)
             .Build();
 
     public static MessageComponent ReportActions() =>
