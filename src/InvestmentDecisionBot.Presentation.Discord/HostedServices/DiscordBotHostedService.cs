@@ -2,17 +2,19 @@ using Discord;
 using Discord.WebSocket;
 using InvestmentDecisionBot.Application.Abstractions;
 using InvestmentDecisionBot.Application.DTOs;
-using InvestmentDecisionBot.Infrastructure.Discord;
-using InvestmentDecisionBot.Worker.Scheduling;
+using InvestmentDecisionBot.Presentation.Discord.Options;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
-namespace InvestmentDecisionBot.Worker.HostedServices;
+namespace InvestmentDecisionBot.Presentation.Discord.HostedServices;
 
 public sealed class DiscordBotHostedService(
     DiscordSocketClient client,
     IServiceProvider services,
     IOptions<DiscordOptions> options,
-    ReportRunCoordinator coordinator,
+    IReportRunCoordinator coordinator,
     ILogger<DiscordBotHostedService> logger) : IHostedService
 {
     private const int EmbedDescriptionLimit = 4000;

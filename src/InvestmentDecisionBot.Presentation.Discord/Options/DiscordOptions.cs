@@ -1,4 +1,4 @@
-namespace InvestmentDecisionBot.Infrastructure.Discord;
+namespace InvestmentDecisionBot.Presentation.Discord.Options;
 
 public sealed class DiscordOptions
 {

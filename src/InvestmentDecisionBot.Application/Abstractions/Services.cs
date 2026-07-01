@@ -28,6 +28,11 @@ public interface IMarketDataPrefetchService
     Task<MarketDataDetailResult> GetDetailAsync(string symbol, CancellationToken cancellationToken);
 }
 
+public interface IReportRunCoordinator
+{
+    Task<bool> TryRunAsync(Func<CancellationToken, Task> action, CancellationToken cancellationToken);
+}
+
 public interface IScoreCalculator
 {
     ScoreResult Calculate(AnalysisInput input);

@@ -3,6 +3,7 @@
     <Project Path="src/InvestmentDecisionBot.Application/InvestmentDecisionBot.Application.csproj" />
     <Project Path="src/InvestmentDecisionBot.Domain/InvestmentDecisionBot.Domain.csproj" />
     <Project Path="src/InvestmentDecisionBot.Infrastructure/InvestmentDecisionBot.Infrastructure.csproj" />
+    <Project Path="src/InvestmentDecisionBot.Presentation.Discord/InvestmentDecisionBot.Presentation.Discord.csproj" />
     <Project Path="src/InvestmentDecisionBot.Worker/InvestmentDecisionBot.Worker.csproj" />
   </Folder>
   <Folder Name="/tests/">

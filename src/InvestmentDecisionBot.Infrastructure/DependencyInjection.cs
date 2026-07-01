@@ -1,7 +1,5 @@
-using Discord.WebSocket;
 using InvestmentDecisionBot.Application.Abstractions;
 using InvestmentDecisionBot.Infrastructure.Csv;
-using InvestmentDecisionBot.Infrastructure.Discord;
 using InvestmentDecisionBot.Infrastructure.Persistence;
 using InvestmentDecisionBot.Infrastructure.Providers;
 using InvestmentDecisionBot.Infrastructure.Services;
@@ -81,16 +79,6 @@ public static class DependencyInjection
             services.AddScoped<IFinancialDataProvider, NullFinancialDataProvider>();
         }
         services.AddScoped<IExchangeRateProvider, NullExchangeRateProvider>();
-        services.AddSingleton(new DiscordSocketClient(new DiscordSocketConfig { GatewayIntents = global::Discord.GatewayIntents.Guilds }));
-        services.Configure<DiscordOptions>(options =>
-        {
-            options.Token = configuration["DISCORD_TOKEN"] ?? "";
-            _ = ulong.TryParse(configuration["DISCORD_GUILD_ID"], out var guildId);
-            _ = ulong.TryParse(configuration["DISCORD_CHANNEL_ID"], out var channelId);
-            options.GuildId = guildId;
-            options.ChannelId = channelId;
-        });
-        services.AddScoped<IDiscordReportPublisher, DiscordReportPublisher>();
         return services;
     }
 }

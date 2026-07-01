@@ -1,12 +1,11 @@
 using InvestmentDecisionBot.Application.Abstractions;
-using InvestmentDecisionBot.Worker.Scheduling;
 
 namespace InvestmentDecisionBot.Worker.HostedServices;
 
 public sealed class DailyReportSchedulerHostedService(
     IServiceProvider services,
     IConfiguration configuration,
-    ReportRunCoordinator coordinator,
+    IReportRunCoordinator coordinator,
     ILogger<DailyReportSchedulerHostedService> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)

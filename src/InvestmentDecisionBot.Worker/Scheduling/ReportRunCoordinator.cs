@@ -1,6 +1,8 @@
+using InvestmentDecisionBot.Application.Abstractions;
+
 namespace InvestmentDecisionBot.Worker.Scheduling;
 
-public sealed class ReportRunCoordinator
+public sealed class ReportRunCoordinator : IReportRunCoordinator
 {
     private readonly SemaphoreSlim _semaphore = new(1, 1);
 

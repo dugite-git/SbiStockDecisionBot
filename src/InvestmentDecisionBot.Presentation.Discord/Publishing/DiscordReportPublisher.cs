@@ -2,9 +2,10 @@ using Discord;
 using Discord.WebSocket;
 using InvestmentDecisionBot.Application.Abstractions;
 using InvestmentDecisionBot.Application.DTOs;
+using InvestmentDecisionBot.Presentation.Discord.Options;
 using Microsoft.Extensions.Options;
 
-namespace InvestmentDecisionBot.Infrastructure.Discord;
+namespace InvestmentDecisionBot.Presentation.Discord.Publishing;
 
 public sealed class DiscordReportPublisher(DiscordSocketClient client, IOptions<DiscordOptions> options) : IDiscordReportPublisher
 {
