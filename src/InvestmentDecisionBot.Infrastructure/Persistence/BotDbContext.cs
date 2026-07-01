@@ -54,6 +54,10 @@ public sealed class BotDbContext(DbContextOptions<BotDbContext> options) : DbCon
 
         modelBuilder.Entity<WatchlistItem>().HasIndex(e => new { e.SecurityId, e.IsActive });
         modelBuilder.Entity<SoldEvent>().HasIndex(e => e.SecurityId);
+        modelBuilder.Entity<MarketPriceSnapshot>(entity =>
+        {
+            entity.Property(e => e.FetchedAt).HasConversion<string>();
+        });
         modelBuilder.Entity<ExternalApiCacheEntry>(entity =>
         {
             entity.HasIndex(e => new { e.Provider, e.Function, e.CacheKey }).IsUnique();

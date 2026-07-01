@@ -139,63 +139,33 @@ public sealed class EfSoldEventRepository(BotDbContext db) : ISoldEventRepositor
 
 public sealed class EfMarketPriceSnapshotRepository(BotDbContext db) : IMarketPriceSnapshotRepository
 {
-    public async Task<MarketPriceSnapshot?> FindReusableTodayAsync(int securityId, CancellationToken cancellationToken)
+    public Task<MarketPriceSnapshot?> FindReusableTodayAsync(int securityId, CancellationToken cancellationToken)
     {
         var (today, tomorrow) = GetUtcDayRange();
 
-        if (db.Database.IsRelational())
-        {
-            return await db.MarketPriceSnapshots
-                .FromSqlInterpolated($"""
-                    SELECT *
-                    FROM "MarketPriceSnapshots"
-                    WHERE "SecurityId" = {securityId}
-                      AND "Price" IS NOT NULL
-                      AND "UsedFallback" = 0
-                      AND "FetchedAt" >= {today}
-                      AND "FetchedAt" < {tomorrow}
-                    ORDER BY "FetchedAt" DESC
-                    """)
-                .FirstOrDefaultAsync(cancellationToken);
-        }
-
-        return (await db.MarketPriceSnapshots
+        return db.MarketPriceSnapshots
             .Where(snapshot =>
                 snapshot.SecurityId == securityId &&
                 snapshot.Price != null &&
-                !snapshot.UsedFallback)
-            .ToListAsync(cancellationToken))
-            .Where(snapshot => snapshot.FetchedAt >= today && snapshot.FetchedAt < tomorrow)
+                !snapshot.UsedFallback &&
+                snapshot.FetchedAt >= today &&
+                snapshot.FetchedAt < tomorrow)
             .OrderByDescending(snapshot => snapshot.FetchedAt)
-            .FirstOrDefault();
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
-    public async Task<bool> HasReusableTodayAsync(int securityId, CancellationToken cancellationToken)
+    public Task<bool> HasReusableTodayAsync(int securityId, CancellationToken cancellationToken)
     {
         var (today, tomorrow) = GetUtcDayRange();
 
-        if (db.Database.IsRelational())
-        {
-            return await db.MarketPriceSnapshots
-                .FromSqlInterpolated($"""
-                    SELECT *
-                    FROM "MarketPriceSnapshots"
-                    WHERE "SecurityId" = {securityId}
-                      AND "Price" IS NOT NULL
-                      AND "UsedFallback" = 0
-                      AND "FetchedAt" >= {today}
-                      AND "FetchedAt" < {tomorrow}
-                    """)
-                .AnyAsync(cancellationToken);
-        }
-
-        return (await db.MarketPriceSnapshots
-            .Where(snapshot =>
+        return db.MarketPriceSnapshots.AnyAsync(
+            snapshot =>
                 snapshot.SecurityId == securityId &&
                 snapshot.Price != null &&
-                !snapshot.UsedFallback)
-            .ToListAsync(cancellationToken))
-            .Any(snapshot => snapshot.FetchedAt >= today && snapshot.FetchedAt < tomorrow);
+                !snapshot.UsedFallback &&
+                snapshot.FetchedAt >= today &&
+                snapshot.FetchedAt < tomorrow,
+            cancellationToken);
     }
 
     public void Add(MarketPriceSnapshot snapshot)

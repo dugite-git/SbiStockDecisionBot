@@ -254,4 +254,5 @@ DB上では以下のenumは `INTEGER` として保存されます。
 
 - 現在のスキーマ定義は `src/InvestmentDecisionBot.Infrastructure/Persistence/BotDbContext.cs` と `src/InvestmentDecisionBot.Infrastructure/Persistence/Migrations/BotDbContextModelSnapshot.cs` が基準です。
 - `DateOnly` / `DateTimeOffset` はSQLiteでは `TEXT` として保存されます。
+- `MarketPriceSnapshots.FetchedAt` は、当日再利用判定のLINQ日付範囲検索をSQLite側で実行できるよう、EF Coreで文字列変換を明示しています。
 - EF Coreのnullable設定により、`SecurityId` がnullableでない子テーブルは必須リレーションです。`NewsItems.SecurityId` と `AiAnalysisLogs.AnalysisResultId` はnullableです。
