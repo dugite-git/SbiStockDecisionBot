@@ -97,7 +97,16 @@ public sealed class ReportService(
             analysisRun.Succeeded = true;
             analysisRun.FinishedAt = DateTimeOffset.UtcNow;
             await unitOfWork.SaveChangesAsync(cancellationToken);
-            return new ReportResult(postResult?.Succeeded ?? true, content, analyses.Count, postResult?.MessageId, postResult?.ErrorMessage);
+            return new ReportResult(
+                postResult?.Succeeded ?? true,
+                content,
+                analyses.Count,
+                postResult?.MessageId,
+                postResult?.ErrorMessage,
+                analysisRun.Id,
+                latestImportBatch?.Id,
+                latestImportBatch?.SourceCsvFileName,
+                latestImportBatch?.ImportedAt);
         }
         catch (Exception ex)
         {

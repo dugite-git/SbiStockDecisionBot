@@ -187,6 +187,10 @@ public sealed class DiscordBotHostedService(
             .AddField("売却済み検出", result.SoldDetectedCount, true)
             .AddField("ウォッチリスト追加", result.WatchlistAddedCount, true)
             .AddField("文字コード", string.IsNullOrWhiteSpace(result.EncodingName) ? "不明" : result.EncodingName, true)
+            .AddField("ImportBatch ID", result.ImportBatchId?.ToString() ?? "なし", true)
+            .AddField("CSVファイル", string.IsNullOrWhiteSpace(result.SourceCsvFileName) ? "不明" : result.SourceCsvFileName, true)
+            .AddField("取り込み時刻", FormatUtc(result.ImportedAt), true)
+            .AddField("スキップ", result.SkippedCount, true)
             .WithCurrentTimestamp()
             .Build();
 
@@ -251,6 +255,10 @@ public sealed class DiscordBotHostedService(
                 .WithColor(result.Succeeded ? Color.Blue : Color.Red)
                 .AddField("分析対象数", result.AnalysisCount, true)
                 .AddField("Discord投稿", result.DiscordMessageId is null ? "未投稿" : result.DiscordMessageId, true)
+                .AddField("AnalysisRun ID", result.AnalysisRunId?.ToString() ?? "なし", true)
+                .AddField("元ImportBatch ID", result.SourceImportBatchId?.ToString() ?? "なし", true)
+                .AddField("元CSV", string.IsNullOrWhiteSpace(result.SourceCsvFileName) ? "なし" : result.SourceCsvFileName, true)
+                .AddField("CSV取り込み時刻", FormatUtc(result.SourceImportedAt), true)
                 .WithCurrentTimestamp()
                 .Build();
             await command.FollowupAsync(embed: embed);
@@ -415,6 +423,11 @@ public sealed class DiscordBotHostedService(
             message.Content = "";
             message.Embed = embed;
         });
+
+    private static string FormatUtc(DateTimeOffset? value) =>
+        value is null
+            ? "なし"
+            : value.Value.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss 'UTC'");
 
     private static string Truncate(string? value, int maxLength)
     {

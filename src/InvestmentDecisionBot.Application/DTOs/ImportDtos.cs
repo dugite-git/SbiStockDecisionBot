@@ -25,4 +25,8 @@ public sealed record SbiImportResult(
     int UpdatedCount,
     int SoldDetectedCount,
     int WatchlistAddedCount,
-    string EncodingName);
+    string EncodingName,
+    int? ImportBatchId,
+    DateTimeOffset? ImportedAt,
+    string? SourceCsvFileName,
+    int SkippedCount);

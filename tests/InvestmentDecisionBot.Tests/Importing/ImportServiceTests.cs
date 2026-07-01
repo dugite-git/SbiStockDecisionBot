@@ -33,6 +33,14 @@ NVDA,NVIDIA,1,0,100,120,100,120,+20
 
         var batches = await db.Context.ImportBatches.OrderBy(batch => batch.Id).ToListAsync();
         Assert.Equal(2, batches.Count);
+        Assert.Equal(batches[0].Id, first.ImportBatchId);
+        Assert.Equal(batches[0].ImportedAt, first.ImportedAt);
+        Assert.Equal("first.csv", first.SourceCsvFileName);
+        Assert.Equal(1, first.SkippedCount);
+        Assert.Equal(batches[1].Id, second.ImportBatchId);
+        Assert.Equal(batches[1].ImportedAt, second.ImportedAt);
+        Assert.Equal("second.csv", second.SourceCsvFileName);
+        Assert.Equal(0, second.SkippedCount);
         Assert.Equal("first.csv", batches[0].SourceCsvFileName);
         Assert.Equal(first.EncodingName, batches[0].EncodingName);
         Assert.Equal(2, batches[0].ImportedCount);
@@ -64,6 +72,10 @@ NVDA,NVIDIA,1,0,100,120,100,120,+20
         var result = await service.ImportSbiCsvAsync(StreamFrom("bad,csv\n1,2"), "bad.csv", CancellationToken.None);
 
         Assert.False(result.Succeeded);
+        Assert.Null(result.ImportBatchId);
+        Assert.Null(result.ImportedAt);
+        Assert.Equal("bad.csv", result.SourceCsvFileName);
+        Assert.Equal(0, result.SkippedCount);
         Assert.Empty(await db.Context.Holdings.ToListAsync());
         Assert.Empty(await db.Context.ImportBatches.ToListAsync());
     }

@@ -33,6 +33,7 @@ public sealed class ReportServiceTests
         var report = await service.GenerateDailyReportAsync(postToDiscord: true, CancellationToken.None);
 
         Assert.False(report.Succeeded);
+        Assert.NotNull(report.AnalysisRunId);
         Assert.Contains("7203", report.Content);
         Assert.Contains("SubScores: F", report.Content);
         Assert.DoesNotContain("AI", report.Content);
@@ -42,6 +43,7 @@ public sealed class ReportServiceTests
         Assert.False(dailyReport.PostedToDiscord);
         Assert.NotNull(dailyReport.AnalysisRunId);
         var analysisRun = await db.Context.AnalysisRuns.SingleAsync();
+        Assert.Equal(analysisRun.Id, report.AnalysisRunId);
         Assert.True(analysisRun.Succeeded);
         Assert.Equal("Daily", analysisRun.Trigger);
         Assert.NotNull(analysisRun.FinishedAt);
@@ -71,6 +73,7 @@ public sealed class ReportServiceTests
         var report = await service.GenerateDailyReportAsync(postToDiscord: false, CancellationToken.None);
 
         Assert.True(report.Succeeded);
+        Assert.NotNull(report.AnalysisRunId);
         var analysis = await db.Context.AnalysisResults.SingleAsync();
         Assert.Equal(50.05m, analysis.TotalScore);
         Assert.Equal(BotDecision.Hold, analysis.BotDecision);
@@ -264,6 +267,10 @@ public sealed class ReportServiceTests
         Assert.True(report.Succeeded);
         var analysisRun = await db.Context.AnalysisRuns.SingleAsync();
         Assert.Equal(latestBatch.Id, analysisRun.ImportBatchId);
+        Assert.Equal(analysisRun.Id, report.AnalysisRunId);
+        Assert.Equal(latestBatch.Id, report.SourceImportBatchId);
+        Assert.Equal("latest.csv", report.SourceCsvFileName);
+        Assert.Equal(latestImportedAt, report.SourceImportedAt);
     }
 
     [Fact]
@@ -303,6 +310,10 @@ public sealed class ReportServiceTests
         Assert.True(report.Succeeded);
         var analysisRun = await db.Context.AnalysisRuns.SingleAsync();
         Assert.Null(analysisRun.ImportBatchId);
+        Assert.Equal(analysisRun.Id, report.AnalysisRunId);
+        Assert.Null(report.SourceImportBatchId);
+        Assert.Null(report.SourceCsvFileName);
+        Assert.Null(report.SourceImportedAt);
     }
 
     [Fact]

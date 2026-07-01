@@ -26,13 +26,13 @@ public sealed class ImportService(
         catch (Exception ex)
         {
             await logs.LogAsync("Error", "Import", "SBI CSV import failed before DB update.", ex, cancellationToken);
-            return new SbiImportResult(false, $"CSV取り込みに失敗しました: {ex.Message}", 0, 0, 0, 0, 0, "");
+            return new SbiImportResult(false, $"CSV取り込みに失敗しました: {ex.Message}", 0, 0, 0, 0, 0, "", null, null, fileName, 0);
         }
 
         if (parsed.Holdings.Count == 0)
         {
             await logs.LogAsync("Warning", "Import", "SBI CSV contained no stock holdings.", null, cancellationToken);
-            return new SbiImportResult(false, "CSVに取り込み対象の株式保有データがありませんでした。DBは更新していません。", 0, 0, 0, 0, 0, parsed.EncodingName);
+            return new SbiImportResult(false, "CSVに取り込み対象の株式保有データがありませんでした。DBは更新していません。", 0, 0, 0, 0, 0, parsed.EncodingName, null, null, fileName, 0);
         }
 
         var now = DateTimeOffset.UtcNow;
@@ -45,7 +45,7 @@ public sealed class ImportService(
         if (supportedHoldings.Count == 0)
         {
             await logs.LogAsync("Warning", "Import", "SBI CSV contained no supported Japanese stock holdings.", null, cancellationToken);
-            return new SbiImportResult(false, $"CSVに対象の日本株4桁コードがありませんでした。スキップ: {skippedUnsupported}件。DBは更新していません。", 0, 0, 0, 0, 0, parsed.EncodingName);
+            return new SbiImportResult(false, $"CSVに対象の日本株4桁コードがありませんでした。スキップ: {skippedUnsupported}件。DBは更新していません。", 0, 0, 0, 0, 0, parsed.EncodingName, null, null, fileName, skippedUnsupported);
         }
 
         var symbols = supportedHoldings.Select(h => h.Symbol).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -180,7 +180,19 @@ public sealed class ImportService(
         var message = skippedUnsupported == 0
             ? "CSV取り込みが完了しました。"
             : $"CSV取り込みが完了しました。対象外コードを{skippedUnsupported}件スキップしました。";
-        return new SbiImportResult(true, message, supportedHoldings.Count, created, updated, soldCount, watchAdded, parsed.EncodingName);
+        return new SbiImportResult(
+            true,
+            message,
+            supportedHoldings.Count,
+            created,
+            updated,
+            soldCount,
+            watchAdded,
+            parsed.EncodingName,
+            importBatch.Id,
+            importBatch.ImportedAt,
+            importBatch.SourceCsvFileName,
+            importBatch.SkippedCount);
     }
 
     private static string NormalizeSymbol(string symbol) => symbol.Trim().ToUpperInvariant();
