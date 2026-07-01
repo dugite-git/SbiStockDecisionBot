@@ -63,6 +63,7 @@ public sealed class BotDbContext(DbContextOptions<BotDbContext> options) : DbCon
         modelBuilder.Entity<ImportBatch>(entity =>
         {
             entity.HasIndex(e => e.ImportedAt);
+            entity.Property(e => e.ImportedAt).HasConversion<string>();
             entity.Property(e => e.SourceCsvFileName).HasMaxLength(256);
             entity.Property(e => e.EncodingName).HasMaxLength(64);
             entity.Property(e => e.ErrorMessage).HasMaxLength(2048);

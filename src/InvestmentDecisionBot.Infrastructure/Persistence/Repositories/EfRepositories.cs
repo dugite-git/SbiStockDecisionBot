@@ -93,16 +93,13 @@ public sealed class EfImportBatchRepository(BotDbContext db) : IImportBatchRepos
         db.ImportBatches.Add(importBatch);
     }
 
-    public async Task<ImportBatch?> FindLatestSucceededAsync(CancellationToken cancellationToken)
+    public Task<ImportBatch?> FindLatestSucceededAsync(CancellationToken cancellationToken)
     {
-        var succeededBatches = await db.ImportBatches
+        return db.ImportBatches
             .Where(batch => batch.Succeeded)
-            .ToListAsync(cancellationToken);
-
-        return succeededBatches
             .OrderByDescending(batch => batch.ImportedAt)
             .ThenByDescending(batch => batch.Id)
-            .FirstOrDefault();
+            .FirstOrDefaultAsync(cancellationToken);
     }
 }
 
