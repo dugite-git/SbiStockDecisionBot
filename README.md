@@ -73,23 +73,24 @@ docker compose up --build -d
 このBotは日本株のみを対象にします。
 
 - 銘柄コードは4桁数字のみ許可します。
-- `/watch add` は4桁数字以外を拒否します。
+- `symbol` 入力は前後空白を除去し、全角数字を半角へ変換し、末尾の `.T` を外して4桁コードとして扱います。
+- `/watch add` は正規化後も4桁数字以外の場合に拒否します。
 - SBI CSV取り込みでは4桁数字以外のコードをスキップします。
 - 既存DBに米国株などが残っていても、レポート対象には含めません。
 
 ## Slash Commands
 
-- `/import file:<csv>`: SBI証券CSVを取り込み、保有銘柄を同期します。対象外コードはスキップします。結果には `ImportBatch ID`、CSVファイル名、取り込み時刻、スキップ件数を表示します。
-- `/watch add symbol:<symbol>`: 日本株4桁コードをウォッチリストへ追加します。
-- `/watch remove symbol:<symbol>`: ウォッチリストから外します。保有中の銘柄はレポート対象として残ります。
-- `/watch list`: 現在のウォッチリストを表示します。
-- `/watch targets`: 監視対象に入っている銘柄情報を表示します。
-- `/report`: ルールベースの投資判断レポートを即時生成します。外部AI補足は使用しません。結果には `AnalysisRun ID`、元 `ImportBatch ID`、元CSVファイル名、CSV取り込み時刻を表示します。
-- `/marketdata status`: 外部市場データProviderの取得状況を表示します。
-- `/marketdata coverage`: 外部シンボル、価格、日足、ニュースのキャッシュ状況を表示します。
-- `/marketdata data symbol:<symbol>`: APIから取得して保存済みの価格、財務、ニュース、キャッシュ情報を銘柄別に表示します。
-- `/marketdata articles symbol:<symbol> [limit:<n>]`: APIから取得して保存済みの記事データを銘柄別に表示します。
-- `/marketdata prefetch [limit:<n>]`: Providerが実装されている場合に、未取得データの事前取得を試みます。現在の既定ProviderはJ-Quantsです。
+- `/import file:<csv>`: SBI証券CSVを取り込み、保有銘柄を同期します。結果は概要、ファイル情報、次の操作に分けて表示し、`/watch targets`、`/marketdata prefetch`、`/report` への導線ボタンを表示します。
+- `/watch add symbol:<symbol>`: 日本株4桁コードをウォッチリストへ追加します。`symbol` はAutocompleteに対応し、全角数字や `.T` 付き入力も正規化します。
+- `/watch remove symbol:<symbol>`: ウォッチリストから外します。保有中の銘柄はレポート対象として残ることを結果に表示します。
+- `/watch list`: 現在のウォッチリストを登録元別サマリつきで表示します。10件単位のページングに対応します。
+- `/watch targets`: 監視対象に入っている銘柄情報を表示します。外部シンボル未解決の件数を表示し、10件単位のページングと未解決のみ表示に対応します。
+- `/report`: ルールベースの投資判断レポートを即時生成します。外部AI補足は使用しません。重要判断サマリ、判断別件数、不足データをEmbed先頭に表示し、全文Markdownを添付ファイルとして出力します。
+- `/marketdata status`: 外部市場データProviderの取得状況を表示します。使用率、残りリクエスト、次の取得候補を表示し、事前取得とカバレッジへの導線を出します。
+- `/marketdata coverage`: 外部シンボル、価格、日足、ニュース、為替のキャッシュ状況を表示します。不足あり銘柄を優先し、10件単位のページングと不足のみ表示に対応します。
+- `/marketdata data symbol:<symbol>`: APIから取得して保存済みの価格、財務、ニュース、キャッシュ情報を銘柄別に表示します。`symbol` はAutocompleteに対応します。
+- `/marketdata articles symbol:<symbol> [limit:<n>]`: APIから取得して保存済みの記事データを銘柄別に表示します。センチメント集計と平均関連度を表示し、5件単位のページングに対応します。
+- `/marketdata prefetch [limit:<n>]`: Providerが実装されている場合に、未取得データの事前取得を試みます。処理中表示の後、成功、失敗、スキップ、残りリクエスト、失敗優先ログを表示します。現在の既定ProviderはJ-Quantsです。
 
 ## 外部市場データProvider
 

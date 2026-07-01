@@ -35,7 +35,7 @@ GDELT_REQUEST_DELAY_MS=1000
 
 ### `/marketdata status`
 
-Providerの取得状況を表示します。NullProviderでは上限、使用数、残数、未取得キューはいずれも0です。
+Providerの取得状況を表示します。使用数、上限、残数、使用率、未取得キュー、次の取得候補を表示し、`prefetch` と `coverage` への導線を出します。NullProviderでは上限、使用数、残数、未取得キューはいずれも0です。
 
 ### `/marketdata coverage`
 
@@ -48,9 +48,11 @@ Providerの取得状況を表示します。NullProviderでは上限、使用数
 - 為替キャッシュがあるか
 - 解決エラーがあるか
 
+Discord UIでは不足あり銘柄を優先表示し、10件単位のページングと不足のみ表示に対応します。
+
 ### `/marketdata prefetch limit:<n>`
 
-Providerが実装されている場合に未取得データを事前取得します。J-Quants Providerでは保有銘柄とウォッチリストの日本株4桁コードだけを対象に、J-Quantsの日足・財務、EDINET開示、GDELTニュースをキャッシュします。NullProviderでは取得せず、無効メッセージと空のリクエストログを返します。
+Providerが実装されている場合に未取得データを事前取得します。Discord UIでは処理中表示の後、成功、失敗、スキップ、残りリクエスト、失敗優先ログを表示します。J-Quants Providerでは保有銘柄とウォッチリストの日本株4桁コードだけを対象に、J-Quantsの日足・財務、EDINET開示、GDELTニュースをキャッシュします。NullProviderでは取得せず、無効メッセージと空のリクエストログを返します。
 
 ## キャッシュテーブル
 
@@ -104,6 +106,8 @@ Provider用に解決したシンボルは `Security` に保存します。
 4. 同日成功済みの `MarketPriceSnapshots` があれば現在価格として使う
 5. `DailyPrices` と `News` のキャッシュがあればスコア入力に渡す
 6. 不足データは `MissingData` とwarningに記録し、中立値で計算する
+
+Discord UIでは重要判断サマリと判断別件数を先に表示し、レポート全文はMarkdown添付で出力します。スコア計算とDB保存の内容は変わりません。
 
 ## スコアへの対応
 

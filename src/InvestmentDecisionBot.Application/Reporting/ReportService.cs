@@ -70,6 +70,18 @@ public sealed class ReportService(
             }
 
             var content = BuildReportContent(analyses);
+            var summaryItems = BuildSummaryItems(analyses);
+            var importantItems = summaryItems
+                .Where(item => IsImportant(item.Decision))
+                .OrderBy(item => item.Symbol)
+                .Take(5)
+                .ToList();
+            var decisionCounts = BuildDecisionCounts(summaryItems);
+            var missingDataCategories = summaryItems
+                .SelectMany(item => item.MissingData)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
+                .ToList();
             var dailyReport = new DailyReport
             {
                 AnalysisRun = analysisRun,
@@ -106,7 +118,11 @@ public sealed class ReportService(
                 analysisRun.Id,
                 latestImportBatch?.Id,
                 latestImportBatch?.SourceCsvFileName,
-                latestImportBatch?.ImportedAt);
+                latestImportBatch?.ImportedAt,
+                importantItems,
+                summaryItems,
+                decisionCounts,
+                missingDataCategories);
         }
         catch (Exception ex)
         {
@@ -169,6 +185,39 @@ public sealed class ReportService(
 
         return lines.ToString().TrimEnd();
     }
+
+    private static IReadOnlyList<ReportDecisionSummaryItem> BuildSummaryItems(
+        IReadOnlyList<(AnalysisInput Input, ScoreResult Score, DecisionResult Decision)> analyses) =>
+        analyses
+            .OrderByDescending(entry => IsImportant(entry.Decision.Decision))
+            .ThenBy(entry => entry.Input.Symbol)
+            .Select(entry => new ReportDecisionSummaryItem(
+                entry.Input.Symbol,
+                entry.Input.Name,
+                entry.Input.TargetType,
+                entry.Decision.Decision,
+                entry.Score.TotalScore,
+                entry.Score.UnrealizedProfitLossRate,
+                entry.Decision.Confidence,
+                entry.Decision.Reason,
+                entry.Score.FundamentalScore,
+                entry.Score.QualityScore,
+                entry.Score.MomentumScore,
+                entry.Score.NewsScore,
+                entry.Score.PositionRiskScore,
+                entry.Score.MissingData,
+                entry.Score.Warnings ?? Array.Empty<string>()))
+            .ToList();
+
+    private static ReportDecisionCounts BuildDecisionCounts(IReadOnlyList<ReportDecisionSummaryItem> items) =>
+        new(
+            items.Count(item => item.Decision == BotDecision.TakeProfit),
+            items.Count(item => item.Decision == BotDecision.PartialTakeProfit),
+            items.Count(item => item.Decision == BotDecision.StopLoss),
+            items.Count(item => item.Decision == BotDecision.PartialStopLoss),
+            items.Count(item => item.Decision == BotDecision.NewBuy),
+            items.Count(item => item.Decision == BotDecision.Hold),
+            items.Count(item => IsImportant(item.Decision)));
 
     private async Task<AnalysisInput> BuildHoldingInputAsync(Holding holding, decimal totalPortfolioMarketValue, CancellationToken cancellationToken)
     {

@@ -344,4 +344,40 @@ public sealed class ReportServiceTests
         Assert.Empty(await db.Context.AnalysisResults.ToListAsync());
         Assert.Equal(0, marketData.CallCount);
     }
+
+    [Fact]
+    public async Task ReturnsStructuredReportSummaryWhileKeepingMarkdownContent()
+    {
+        using var db = new TestDb();
+        var security = new Security { Symbol = "7203", Name = "Toyota", SecurityType = SecurityType.Stock, Country = "JP", Currency = "JPY" };
+        db.Context.Securities.Add(security);
+        db.Context.Holdings.Add(new Holding
+        {
+            Security = security,
+            Quantity = 100,
+            AverageAcquisitionPrice = 100,
+            AcquisitionAmount = 10000,
+            ImportedCurrentPrice = 70,
+            ImportedMarketValue = 7000,
+            ImportedUnrealizedProfitLoss = -3000,
+            IsActive = true
+        });
+        await db.Context.SaveChangesAsync();
+
+        var marketData = new FakeMarketDataProvider(70m);
+        var service = TestServices.CreateReportService(db.Context, marketData, marketData);
+        var report = await service.GenerateDailyReportAsync(postToDiscord: false, CancellationToken.None);
+
+        Assert.True(report.Succeeded);
+        Assert.Contains("本日の投資判断レポート", report.Content);
+        Assert.NotNull(report.DecisionCounts);
+        Assert.Equal(1, report.DecisionCounts.ImportantTotal);
+        Assert.Equal(1, report.DecisionCounts.StopLoss);
+        Assert.NotNull(report.ImportantItems);
+        var important = Assert.Single(report.ImportantItems);
+        Assert.Equal("7203", important.Symbol);
+        Assert.Equal(BotDecision.StopLoss, important.Decision);
+        Assert.NotNull(report.Items);
+        Assert.Single(report.Items);
+    }
 }

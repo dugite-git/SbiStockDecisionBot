@@ -24,6 +24,7 @@
     <ProjectReference Include="..\..\src\InvestmentDecisionBot.Application\InvestmentDecisionBot.Application.csproj" />
     <ProjectReference Include="..\..\src\InvestmentDecisionBot.Infrastructure\InvestmentDecisionBot.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\InvestmentDecisionBot.Domain\InvestmentDecisionBot.Domain.csproj" />
+    <ProjectReference Include="..\..\src\InvestmentDecisionBot.Presentation.Discord\InvestmentDecisionBot.Presentation.Discord.csproj" />
   </ItemGroup>
 
 </Project>

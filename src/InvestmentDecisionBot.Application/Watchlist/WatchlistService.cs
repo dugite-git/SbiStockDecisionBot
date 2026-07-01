@@ -116,7 +116,19 @@ public sealed class WatchlistService(
             .ToList();
     }
 
-    private static string NormalizeSymbol(string symbol) => symbol.Trim().ToUpperInvariant();
+    private static string NormalizeSymbol(string symbol)
+    {
+        var normalized = symbol.Trim().ToUpperInvariant();
+        if (normalized.EndsWith(".T", StringComparison.OrdinalIgnoreCase))
+        {
+            normalized = normalized[..^2];
+        }
+
+        return string.Concat(normalized.Select(value =>
+            value is >= '０' and <= '９'
+                ? (char)('0' + value - '０')
+                : value));
+    }
 
     private static bool IsJapaneseSymbol(string symbol) => symbol.Length == 4 && symbol.All(char.IsDigit);
 }
