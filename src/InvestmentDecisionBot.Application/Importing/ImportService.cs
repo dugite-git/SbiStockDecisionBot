@@ -10,6 +10,7 @@ public sealed class ImportService(
     ISecurityRepository securities,
     IHoldingRepository holdings,
     IHoldingSnapshotRepository holdingSnapshots,
+    IImportBatchRepository importBatches,
     IWatchlistRepository watchlist,
     ISoldEventRepository soldEvents,
     IUnitOfWork unitOfWork,
@@ -50,6 +51,18 @@ public sealed class ImportService(
         var symbols = supportedHoldings.Select(h => h.Symbol).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var existingSecurities = (await securities.FindBySymbolsAsync(SecurityType.Stock, symbols, cancellationToken))
             .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase);
+
+        var importBatch = new ImportBatch
+        {
+            SourceCsvFileName = fileName,
+            EncodingName = parsed.EncodingName,
+            ImportedAt = now,
+            ImportedCount = supportedHoldings.Count,
+            SkippedCount = skippedUnsupported,
+            Succeeded = true,
+            CreatedAt = now
+        };
+        importBatches.Add(importBatch);
 
         var created = 0;
         var updated = 0;
@@ -104,6 +117,7 @@ public sealed class ImportService(
             holdingSnapshots.Add(new HoldingSnapshot
             {
                 Security = security,
+                ImportBatch = importBatch,
                 Quantity = imported.Quantity,
                 PendingSellQuantity = imported.PendingSellQuantity,
                 AverageAcquisitionPrice = imported.AverageAcquisitionPrice,
@@ -131,6 +145,7 @@ public sealed class ImportService(
             soldEvents.Add(new SoldEvent
             {
                 Security = holding.Security,
+                ImportBatch = importBatch,
                 DetectedAt = now,
                 PreviousQuantity = holding.Quantity,
                 PreviousAverageAcquisitionPrice = holding.AverageAcquisitionPrice,
@@ -155,6 +170,11 @@ public sealed class ImportService(
                 watchAdded++;
             }
         }
+
+        importBatch.CreatedCount = created;
+        importBatch.UpdatedCount = updated;
+        importBatch.SoldCount = soldCount;
+        importBatch.WatchAddedCount = watchAdded;
 
         await unitOfWork.SaveChangesAsync(cancellationToken);
         var message = skippedUnsupported == 0

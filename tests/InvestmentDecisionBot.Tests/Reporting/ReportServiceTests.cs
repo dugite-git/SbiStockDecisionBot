@@ -38,7 +38,13 @@ public sealed class ReportServiceTests
         Assert.DoesNotContain("AI", report.Content);
         Assert.Empty(await db.Context.AiAnalysisLogs.ToListAsync());
         Assert.Single(await db.Context.DailyReports.ToListAsync());
-        Assert.False((await db.Context.DailyReports.SingleAsync()).PostedToDiscord);
+        var dailyReport = await db.Context.DailyReports.SingleAsync();
+        Assert.False(dailyReport.PostedToDiscord);
+        Assert.NotNull(dailyReport.AnalysisRunId);
+        var analysisRun = await db.Context.AnalysisRuns.SingleAsync();
+        Assert.True(analysisRun.Succeeded);
+        Assert.Equal("Daily", analysisRun.Trigger);
+        Assert.NotNull(analysisRun.FinishedAt);
     }
 
     [Fact]
@@ -68,6 +74,15 @@ public sealed class ReportServiceTests
         var analysis = await db.Context.AnalysisResults.SingleAsync();
         Assert.Equal(50.05m, analysis.TotalScore);
         Assert.Equal(BotDecision.Hold, analysis.BotDecision);
+        Assert.NotNull(analysis.AnalysisRunId);
+        Assert.NotNull(analysis.ScoreDetailsJson);
+        Assert.NotNull(analysis.InputDataSummaryJson);
+        using var scoreDetails = System.Text.Json.JsonDocument.Parse(analysis.ScoreDetailsJson);
+        Assert.True(scoreDetails.RootElement.TryGetProperty("totalScore", out _));
+        Assert.True(scoreDetails.RootElement.TryGetProperty("decision", out _));
+        using var inputSummary = System.Text.Json.JsonDocument.Parse(analysis.InputDataSummaryJson);
+        Assert.Equal("7203", inputSummary.RootElement.GetProperty("symbol").GetString());
+        Assert.Equal(security.Id, inputSummary.RootElement.GetProperty("securityId").GetInt32());
 
         var snapshot = await db.Context.MarketPriceSnapshots.SingleAsync();
         Assert.Equal(3000m, snapshot.Price);

@@ -29,6 +29,11 @@ public interface IHoldingSnapshotRepository
     void Add(HoldingSnapshot snapshot);
 }
 
+public interface IImportBatchRepository
+{
+    void Add(ImportBatch importBatch);
+}
+
 public interface IWatchlistRepository
 {
     Task<WatchlistItem?> FindActiveBySecurityIdAsync(int securityId, CancellationToken cancellationToken);
@@ -58,6 +63,11 @@ public interface IExternalApiCacheRepository
 public interface IAnalysisResultRepository
 {
     void Add(AnalysisResult analysisResult);
+}
+
+public interface IAnalysisRunRepository
+{
+    void Add(AnalysisRun analysisRun);
 }
 
 public interface IDailyReportRepository

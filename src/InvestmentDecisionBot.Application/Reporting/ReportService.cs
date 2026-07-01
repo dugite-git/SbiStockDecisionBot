@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using InvestmentDecisionBot.Application.Abstractions;
 using InvestmentDecisionBot.Application.DTOs;
 using InvestmentDecisionBot.Domain.Entities;
@@ -12,6 +13,7 @@ public sealed class ReportService(
     IMarketPriceSnapshotRepository marketPriceSnapshots,
     IExternalApiCacheRepository externalApiCache,
     IAnalysisResultRepository analysisResults,
+    IAnalysisRunRepository analysisRuns,
     IDailyReportRepository dailyReports,
     IUnitOfWork unitOfWork,
     IScoreCalculator scoreCalculator,
@@ -26,58 +28,90 @@ public sealed class ReportService(
     {
         var now = DateTimeOffset.UtcNow;
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        var activeHoldings = (await holdings.ListActiveWithSecurityAsync(cancellationToken))
-            .Where(h => h.Security.IsJapaneseStock())
-            .ToList();
-        var activeWatchlist = (await watchlist.ListActiveWithSecurityAsync(cancellationToken))
-            .Where(w => w.Security.IsJapaneseStock())
-            .ToList();
-        var holdingIds = activeHoldings.Select(h => h.SecurityId).ToHashSet();
-
-        var analyses = new List<(AnalysisInput Input, ScoreResult Score, DecisionResult Decision)>();
-        var totalPortfolioMarketValue = activeHoldings
-            .Select(holding => holding.ImportedMarketValue ?? holding.ImportedCurrentPrice * holding.Quantity)
-            .Where(value => value is > 0m)
-            .Sum(value => value!.Value);
-
-        foreach (var holding in activeHoldings)
+        var analysisRun = new AnalysisRun
         {
-            var input = await BuildHoldingInputAsync(holding, totalPortfolioMarketValue, cancellationToken);
-            analyses.Add(await AnalyzeAsync(input, cancellationToken));
-        }
-
-        foreach (var item in activeWatchlist.Where(w => !holdingIds.Contains(w.SecurityId)))
-        {
-            var input = await BuildWatchlistInputAsync(item, cancellationToken);
-            analyses.Add(await AnalyzeAsync(input, cancellationToken));
-        }
-
-        var content = BuildReportContent(analyses);
-        var dailyReport = new DailyReport
-        {
-            ReportDate = today,
-            Content = content,
-            GeneratedAt = now,
-            PostedToDiscord = false,
+            AnalysisDate = today,
+            StartedAt = now,
+            Trigger = "Daily",
+            Succeeded = false,
             CreatedAt = now
         };
-        dailyReports.Add(dailyReport);
+        analysisRuns.Add(analysisRun);
 
-        DiscordPostResult? postResult = null;
-        if (postToDiscord)
+        try
         {
-            postResult = await publisher.PostReportAsync(content, cancellationToken);
-            dailyReport.PostedToDiscord = postResult.Succeeded;
-            dailyReport.DiscordMessageId = postResult.MessageId;
-            dailyReport.PostedAt = postResult.Succeeded ? DateTimeOffset.UtcNow : null;
-            if (!postResult.Succeeded)
-            {
-                await logs.LogAsync("Error", "Discord", postResult.ErrorMessage ?? "Discord投稿に失敗しました。", null, cancellationToken);
-            }
-        }
+            var activeHoldings = (await holdings.ListActiveWithSecurityAsync(cancellationToken))
+                .Where(h => h.Security.IsJapaneseStock())
+                .ToList();
+            var activeWatchlist = (await watchlist.ListActiveWithSecurityAsync(cancellationToken))
+                .Where(w => w.Security.IsJapaneseStock())
+                .ToList();
+            var holdingIds = activeHoldings.Select(h => h.SecurityId).ToHashSet();
 
-        await unitOfWork.SaveChangesAsync(cancellationToken);
-        return new ReportResult(postResult?.Succeeded ?? true, content, analyses.Count, postResult?.MessageId, postResult?.ErrorMessage);
+            var analyses = new List<(AnalysisInput Input, ScoreResult Score, DecisionResult Decision)>();
+            var totalPortfolioMarketValue = activeHoldings
+                .Select(holding => holding.ImportedMarketValue ?? holding.ImportedCurrentPrice * holding.Quantity)
+                .Where(value => value is > 0m)
+                .Sum(value => value!.Value);
+
+            foreach (var holding in activeHoldings)
+            {
+                var input = await BuildHoldingInputAsync(holding, totalPortfolioMarketValue, cancellationToken);
+                analyses.Add(await AnalyzeAsync(input, analysisRun, today, cancellationToken));
+            }
+
+            foreach (var item in activeWatchlist.Where(w => !holdingIds.Contains(w.SecurityId)))
+            {
+                var input = await BuildWatchlistInputAsync(item, cancellationToken);
+                analyses.Add(await AnalyzeAsync(input, analysisRun, today, cancellationToken));
+            }
+
+            var content = BuildReportContent(analyses);
+            var dailyReport = new DailyReport
+            {
+                AnalysisRun = analysisRun,
+                ReportDate = today,
+                Content = content,
+                GeneratedAt = now,
+                PostedToDiscord = false,
+                CreatedAt = now
+            };
+            dailyReports.Add(dailyReport);
+
+            DiscordPostResult? postResult = null;
+            if (postToDiscord)
+            {
+                postResult = await publisher.PostReportAsync(content, cancellationToken);
+                dailyReport.PostedToDiscord = postResult.Succeeded;
+                dailyReport.DiscordMessageId = postResult.MessageId;
+                dailyReport.PostedAt = postResult.Succeeded ? DateTimeOffset.UtcNow : null;
+                if (!postResult.Succeeded)
+                {
+                    await logs.LogAsync("Error", "Discord", postResult.ErrorMessage ?? "Discord投稿に失敗しました。", null, cancellationToken);
+                }
+            }
+
+            analysisRun.Succeeded = true;
+            analysisRun.FinishedAt = DateTimeOffset.UtcNow;
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+            return new ReportResult(postResult?.Succeeded ?? true, content, analyses.Count, postResult?.MessageId, postResult?.ErrorMessage);
+        }
+        catch (Exception ex)
+        {
+            analysisRun.Succeeded = false;
+            analysisRun.FinishedAt = DateTimeOffset.UtcNow;
+            analysisRun.ErrorMessage = ex.Message;
+            try
+            {
+                await unitOfWork.SaveChangesAsync(cancellationToken);
+            }
+            catch
+            {
+                // Preserve the original failure when the best-effort failure log cannot be saved.
+            }
+
+            throw;
+        }
     }
 
     private static string BuildReportContent(IReadOnlyList<(AnalysisInput Input, ScoreResult Score, DecisionResult Decision)> analyses)
@@ -251,15 +285,20 @@ public sealed class ReportService(
         return result;
     }
 
-    private async Task<(AnalysisInput Input, ScoreResult Score, DecisionResult Decision)> AnalyzeAsync(AnalysisInput input, CancellationToken cancellationToken)
+    private async Task<(AnalysisInput Input, ScoreResult Score, DecisionResult Decision)> AnalyzeAsync(
+        AnalysisInput input,
+        AnalysisRun analysisRun,
+        DateOnly analysisDate,
+        CancellationToken cancellationToken)
     {
         var score = scoreCalculator.Calculate(input);
         var decision = decisionResolver.Resolve(input, score);
 
         var analysis = new AnalysisResult
         {
+            AnalysisRun = analysisRun,
             SecurityId = input.SecurityId,
-            AnalysisDate = DateOnly.FromDateTime(DateTime.UtcNow),
+            AnalysisDate = analysisDate,
             TargetType = input.TargetType,
             FundamentalScore = score.FundamentalScore,
             QualityScore = score.QualityScore,
@@ -272,6 +311,8 @@ public sealed class ReportService(
             Confidence = decision.Confidence,
             Reason = BuildReason(decision, score),
             MissingData = string.Join(",", score.MissingData),
+            ScoreDetailsJson = BuildScoreDetailsJson(score, decision),
+            InputDataSummaryJson = BuildInputDataSummaryJson(input),
             DecisionConflict = false,
             CreatedAt = DateTimeOffset.UtcNow
         };
@@ -313,6 +354,43 @@ public sealed class ReportService(
 
         return string.Join(" ", details);
     }
+
+    private static string BuildScoreDetailsJson(ScoreResult score, DecisionResult decision) =>
+        JsonSerializer.Serialize(new
+        {
+            fundamental = score.Fundamental,
+            quality = score.Quality,
+            momentum = score.Momentum,
+            news = score.News,
+            positionRisk = score.PositionRisk,
+            totalScore = score.TotalScore,
+            unrealizedProfitLossRate = score.UnrealizedProfitLossRate,
+            missingData = score.MissingData,
+            reasons = score.Reasons,
+            warnings = score.Warnings,
+            decision = new
+            {
+                decision = decision.Decision,
+                sellReasonType = decision.SellReasonType,
+                confidence = decision.Confidence,
+                reason = decision.Reason
+            }
+        });
+
+    private static string BuildInputDataSummaryJson(AnalysisInput input) =>
+        JsonSerializer.Serialize(new
+        {
+            securityId = input.SecurityId,
+            symbol = input.Symbol,
+            targetType = input.TargetType,
+            hasCurrentPrice = input.CurrentPrice is not null,
+            hasMarketValue = input.MarketValue is not null,
+            dailyPriceCount = input.DailyPrices?.Count ?? 0,
+            newsCount = input.News?.Count ?? 0,
+            hasFinancialData = input.FinancialSnapshot is not null,
+            missingData = input.MissingData,
+            currency = input.Currency
+        });
 
     private static bool IsImportant(BotDecision decision) =>
         decision is BotDecision.TakeProfit or BotDecision.PartialTakeProfit or BotDecision.StopLoss or BotDecision.PartialStopLoss or BotDecision.NewBuy;

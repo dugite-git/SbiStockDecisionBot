@@ -46,11 +46,13 @@ public static class DependencyInjection
         services.AddScoped<ISecurityRepository, EfSecurityRepository>();
         services.AddScoped<IHoldingRepository, EfHoldingRepository>();
         services.AddScoped<IHoldingSnapshotRepository, EfHoldingSnapshotRepository>();
+        services.AddScoped<IImportBatchRepository, EfImportBatchRepository>();
         services.AddScoped<IWatchlistRepository, EfWatchlistRepository>();
         services.AddScoped<ISoldEventRepository, EfSoldEventRepository>();
         services.AddScoped<IMarketPriceSnapshotRepository, EfMarketPriceSnapshotRepository>();
         services.AddScoped<IExternalApiCacheRepository, EfExternalApiCacheRepository>();
         services.AddScoped<IAnalysisResultRepository, EfAnalysisResultRepository>();
+        services.AddScoped<IAnalysisRunRepository, EfAnalysisRunRepository>();
         services.AddScoped<IDailyReportRepository, EfDailyReportRepository>();
         services.AddScoped<ISbiCsvParser, SbiCsvParser>();
         services.AddScoped<ISystemLogService, SystemLogService>();

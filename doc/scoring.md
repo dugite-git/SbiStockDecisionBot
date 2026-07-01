@@ -407,3 +407,14 @@ Confidence = 0.55
 - `liquidity`
 
 不足データがあってもBot全体は停止せず、中立値とwarningでレポート生成を継続します。
+
+## 分析結果の保存
+
+`/report` の1回の実行は `AnalysisRun` として保存されます。各銘柄の `AnalysisResult` はその `AnalysisRun` に紐付き、最終スコアや判定に加えて以下をJSON文字列として保持します。
+
+| 項目 | 内容 |
+| --- | --- |
+| `ScoreDetailsJson` | 各サブスコアの `ScoreBreakdown`、総合スコア、含み損益率、理由、warning、最終判断 |
+| `InputDataSummaryJson` | 銘柄ID、銘柄コード、対象種別、価格・評価額の有無、日足件数、ニュース件数、財務データ有無、不足データ、通貨 |
+
+JSONは追跡性を上げるための履歴情報で、現時点ではスコア計算ロジックの入力として再利用しません。

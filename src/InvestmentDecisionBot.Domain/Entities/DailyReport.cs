@@ -3,6 +3,8 @@ namespace InvestmentDecisionBot.Domain.Entities;
 public sealed class DailyReport
 {
     public int Id { get; set; }
+    public int? AnalysisRunId { get; set; }
+    public AnalysisRun? AnalysisRun { get; set; }
     public DateOnly ReportDate { get; set; }
     public string Content { get; set; } = "";
     public bool PostedToDiscord { get; set; }

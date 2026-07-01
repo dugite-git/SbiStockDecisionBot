@@ -7,6 +7,8 @@ public sealed class AnalysisResult
     public int Id { get; set; }
     public int SecurityId { get; set; }
     public Security Security { get; set; } = null!;
+    public int? AnalysisRunId { get; set; }
+    public AnalysisRun? AnalysisRun { get; set; }
     public DateOnly AnalysisDate { get; set; }
     public TargetType TargetType { get; set; }
     public decimal FundamentalScore { get; set; }
@@ -20,6 +22,8 @@ public sealed class AnalysisResult
     public decimal Confidence { get; set; }
     public string Reason { get; set; } = "";
     public string? MissingData { get; set; }
+    public string? ScoreDetailsJson { get; set; }
+    public string? InputDataSummaryJson { get; set; }
     public bool DecisionConflict { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 }

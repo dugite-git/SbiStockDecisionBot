@@ -5,6 +5,8 @@ public sealed class HoldingSnapshot
     public int Id { get; set; }
     public int SecurityId { get; set; }
     public Security Security { get; set; } = null!;
+    public int? ImportBatchId { get; set; }
+    public ImportBatch? ImportBatch { get; set; }
     public decimal Quantity { get; set; }
     public decimal? PendingSellQuantity { get; set; }
     public decimal AverageAcquisitionPrice { get; set; }

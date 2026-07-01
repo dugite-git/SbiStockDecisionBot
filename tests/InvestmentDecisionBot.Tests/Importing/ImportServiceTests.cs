@@ -30,6 +30,29 @@ NVDA,NVIDIA,1,0,100,120,100,120,+20
         Assert.Equal(3, await db.Context.HoldingSnapshots.CountAsync());
         Assert.Single(await db.Context.SoldEvents.ToListAsync());
         Assert.Single(await db.Context.WatchlistItems.ToListAsync());
+
+        var batches = await db.Context.ImportBatches.OrderBy(batch => batch.Id).ToListAsync();
+        Assert.Equal(2, batches.Count);
+        Assert.Equal("first.csv", batches[0].SourceCsvFileName);
+        Assert.Equal(first.EncodingName, batches[0].EncodingName);
+        Assert.Equal(2, batches[0].ImportedCount);
+        Assert.Equal(2, batches[0].CreatedCount);
+        Assert.Equal(0, batches[0].UpdatedCount);
+        Assert.Equal(0, batches[0].SoldCount);
+        Assert.Equal(0, batches[0].WatchAddedCount);
+        Assert.Equal(1, batches[0].SkippedCount);
+        Assert.True(batches[0].Succeeded);
+        Assert.Equal("second.csv", batches[1].SourceCsvFileName);
+        Assert.Equal(second.EncodingName, batches[1].EncodingName);
+        Assert.Equal(1, batches[1].ImportedCount);
+        Assert.Equal(0, batches[1].CreatedCount);
+        Assert.Equal(1, batches[1].UpdatedCount);
+        Assert.Equal(1, batches[1].SoldCount);
+        Assert.Equal(1, batches[1].WatchAddedCount);
+        Assert.Equal(0, batches[1].SkippedCount);
+        Assert.True(batches[1].Succeeded);
+        Assert.All(await db.Context.HoldingSnapshots.ToListAsync(), snapshot => Assert.NotNull(snapshot.ImportBatchId));
+        Assert.NotNull((await db.Context.SoldEvents.SingleAsync()).ImportBatchId);
     }
 
     [Fact]
@@ -42,6 +65,7 @@ NVDA,NVIDIA,1,0,100,120,100,120,+20
 
         Assert.False(result.Succeeded);
         Assert.Empty(await db.Context.Holdings.ToListAsync());
+        Assert.Empty(await db.Context.ImportBatches.ToListAsync());
     }
 
     private static Stream StreamFrom(string text) => new MemoryStream(Encoding.UTF8.GetBytes(text));

@@ -86,6 +86,14 @@ public sealed class EfHoldingSnapshotRepository(BotDbContext db) : IHoldingSnaps
     }
 }
 
+public sealed class EfImportBatchRepository(BotDbContext db) : IImportBatchRepository
+{
+    public void Add(ImportBatch importBatch)
+    {
+        db.ImportBatches.Add(importBatch);
+    }
+}
+
 public sealed class EfWatchlistRepository(BotDbContext db) : IWatchlistRepository
 {
     public Task<WatchlistItem?> FindActiveBySecurityIdAsync(int securityId, CancellationToken cancellationToken)
@@ -199,6 +207,14 @@ public sealed class EfAnalysisResultRepository(BotDbContext db) : IAnalysisResul
     public void Add(AnalysisResult analysisResult)
     {
         db.AnalysisResults.Add(analysisResult);
+    }
+}
+
+public sealed class EfAnalysisRunRepository(BotDbContext db) : IAnalysisRunRepository
+{
+    public void Add(AnalysisRun analysisRun)
+    {
+        db.AnalysisRuns.Add(analysisRun);
     }
 }
 

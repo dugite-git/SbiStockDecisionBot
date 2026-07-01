@@ -59,6 +59,7 @@ flowchart TD
 - `DTOs/`: 入出力 DTO
 - `Importing/`, `Watchlist/`, `Reporting/`, `Scoring/`: アプリケーションサービス
 - `DependencyInjection.cs`: Application 層の DI 登録
+- `IImportBatchRepository` / `IAnalysisRunRepository`: CSV取り込み単位と分析実行単位を永続化するための抽象
 - `IReportRunCoordinator`: レポート生成の同時実行を防ぐための抽象
 
 ### `InvestmentDecisionBot.Infrastructure`
@@ -142,7 +143,7 @@ flowchart TD
 | 抽象/サービス | 実装/登録内容 |
 | --- | --- |
 | `BotDbContext` | `DATABASE_PROVIDER=InMemory` の場合は InMemory、それ以外は SQLite |
-| Repository / UnitOfWork | `Ef*Repository` / `EfUnitOfWork` |
+| Repository / UnitOfWork | `Ef*Repository` / `EfUnitOfWork`。`ImportBatch` と `AnalysisRun` のRepositoryもここで登録します。 |
 | `ISbiCsvParser` | `SbiCsvParser` |
 | `ISystemLogService` | `SystemLogService` |
 | `HttpClient` | 名前付きクライアント `ExternalMarketData` |
