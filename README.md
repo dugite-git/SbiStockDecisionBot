@@ -79,12 +79,12 @@ docker compose up --build -d
 
 ## Slash Commands
 
-- `/import file:<csv>`: SBI証券CSVを取り込み、保有銘柄を同期します。対象外コードはスキップします。
+- `/import file:<csv>`: SBI証券CSVを取り込み、保有銘柄を同期します。対象外コードはスキップします。結果には `ImportBatch ID`、CSVファイル名、取り込み時刻、スキップ件数を表示します。
 - `/watch add symbol:<symbol>`: 日本株4桁コードをウォッチリストへ追加します。
 - `/watch remove symbol:<symbol>`: ウォッチリストから外します。保有中の銘柄はレポート対象として残ります。
 - `/watch list`: 現在のウォッチリストを表示します。
 - `/watch targets`: 監視対象に入っている銘柄情報を表示します。
-- `/report`: ルールベースの投資判断レポートを即時生成します。外部AI補足は使用しません。
+- `/report`: ルールベースの投資判断レポートを即時生成します。外部AI補足は使用しません。結果には `AnalysisRun ID`、元 `ImportBatch ID`、元CSVファイル名、CSV取り込み時刻を表示します。
 - `/marketdata status`: 外部市場データProviderの取得状況を表示します。
 - `/marketdata coverage`: 外部シンボル、価格、日足、ニュースのキャッシュ状況を表示します。
 - `/marketdata data symbol:<symbol>`: APIから取得して保存済みの価格、財務、ニュース、キャッシュ情報を銘柄別に表示します。
