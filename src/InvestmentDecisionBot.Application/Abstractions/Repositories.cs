@@ -18,7 +18,7 @@ public interface ISecurityRepository
 
 public interface IHoldingRepository
 {
-    Task<Holding?> FindByStockSymbolAsync(string symbol, CancellationToken cancellationToken);
+    Task<Holding?> FindByStockSymbolWithSecurityAsync(string symbol, CancellationToken cancellationToken);
     Task<IReadOnlyList<Holding>> ListActiveWithSecurityAsync(CancellationToken cancellationToken);
     Task<IReadOnlyList<int>> ListActiveSecurityIdsAsync(CancellationToken cancellationToken);
     void Add(Holding holding);

@@ -79,7 +79,7 @@ public sealed class ImportService(
                 security.UpdatedAt = now;
             }
 
-            var holding = await holdings.FindByStockSymbolAsync(symbol, cancellationToken);
+            var holding = await holdings.FindByStockSymbolWithSecurityAsync(symbol, cancellationToken);
 
             if (holding is null)
             {
