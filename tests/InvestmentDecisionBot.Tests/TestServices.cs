@@ -48,6 +48,7 @@ internal static class TestServices
             new EfMarketPriceSnapshotRepository(db),
             new EfExternalApiCacheRepository(db),
             new EfAnalysisResultRepository(db),
+            new EfImportBatchRepository(db),
             new EfAnalysisRunRepository(db),
             new EfDailyReportRepository(db),
             new EfUnitOfWork(db),

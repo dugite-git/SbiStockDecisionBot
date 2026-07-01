@@ -218,6 +218,94 @@ public sealed class ReportServiceTests
     }
 
     [Fact]
+    public async Task LinksLatestSucceededImportBatchToAnalysisRun()
+    {
+        using var db = new TestDb();
+        var oldImportedAt = DateTimeOffset.UtcNow.AddDays(-1);
+        var latestImportedAt = DateTimeOffset.UtcNow;
+        var oldBatch = new ImportBatch
+        {
+            SourceCsvFileName = "old.csv",
+            EncodingName = "utf-8",
+            ImportedAt = oldImportedAt,
+            ImportedCount = 1,
+            Succeeded = true,
+            CreatedAt = oldImportedAt
+        };
+        var latestBatch = new ImportBatch
+        {
+            SourceCsvFileName = "latest.csv",
+            EncodingName = "utf-8",
+            ImportedAt = latestImportedAt,
+            ImportedCount = 1,
+            Succeeded = true,
+            CreatedAt = latestImportedAt
+        };
+        var security = new Security { Symbol = "7203", Name = "Toyota", SecurityType = SecurityType.Stock, Country = "JP", Currency = "JPY" };
+        db.Context.ImportBatches.AddRange(oldBatch, latestBatch);
+        db.Context.Securities.Add(security);
+        db.Context.Holdings.Add(new Holding
+        {
+            Security = security,
+            Quantity = 100,
+            AverageAcquisitionPrice = 2000,
+            AcquisitionAmount = 200000,
+            ImportedCurrentPrice = 2100,
+            ImportedMarketValue = 210000,
+            ImportedUnrealizedProfitLoss = 10000,
+            IsActive = true
+        });
+        await db.Context.SaveChangesAsync();
+
+        var marketData = new FakeMarketDataProvider(3000m);
+        var service = TestServices.CreateReportService(db.Context, marketData, marketData);
+        var report = await service.GenerateDailyReportAsync(postToDiscord: false, CancellationToken.None);
+
+        Assert.True(report.Succeeded);
+        var analysisRun = await db.Context.AnalysisRuns.SingleAsync();
+        Assert.Equal(latestBatch.Id, analysisRun.ImportBatchId);
+    }
+
+    [Fact]
+    public async Task DoesNotLinkFailedImportBatchToAnalysisRun()
+    {
+        using var db = new TestDb();
+        var importedAt = DateTimeOffset.UtcNow;
+        db.Context.ImportBatches.Add(new ImportBatch
+        {
+            SourceCsvFileName = "failed.csv",
+            EncodingName = "utf-8",
+            ImportedAt = importedAt,
+            ImportedCount = 0,
+            Succeeded = false,
+            ErrorMessage = "failed",
+            CreatedAt = importedAt
+        });
+        var security = new Security { Symbol = "7203", Name = "Toyota", SecurityType = SecurityType.Stock, Country = "JP", Currency = "JPY" };
+        db.Context.Securities.Add(security);
+        db.Context.Holdings.Add(new Holding
+        {
+            Security = security,
+            Quantity = 100,
+            AverageAcquisitionPrice = 2000,
+            AcquisitionAmount = 200000,
+            ImportedCurrentPrice = 2100,
+            ImportedMarketValue = 210000,
+            ImportedUnrealizedProfitLoss = 10000,
+            IsActive = true
+        });
+        await db.Context.SaveChangesAsync();
+
+        var marketData = new FakeMarketDataProvider(3000m);
+        var service = TestServices.CreateReportService(db.Context, marketData, marketData);
+        var report = await service.GenerateDailyReportAsync(postToDiscord: false, CancellationToken.None);
+
+        Assert.True(report.Succeeded);
+        var analysisRun = await db.Context.AnalysisRuns.SingleAsync();
+        Assert.Null(analysisRun.ImportBatchId);
+    }
+
+    [Fact]
     public async Task SkipsExistingUsStocksInReports()
     {
         using var db = new TestDb();

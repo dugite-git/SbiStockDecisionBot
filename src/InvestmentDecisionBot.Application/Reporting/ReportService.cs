@@ -13,6 +13,7 @@ public sealed class ReportService(
     IMarketPriceSnapshotRepository marketPriceSnapshots,
     IExternalApiCacheRepository externalApiCache,
     IAnalysisResultRepository analysisResults,
+    IImportBatchRepository importBatches,
     IAnalysisRunRepository analysisRuns,
     IDailyReportRepository dailyReports,
     IUnitOfWork unitOfWork,
@@ -28,11 +29,13 @@ public sealed class ReportService(
     {
         var now = DateTimeOffset.UtcNow;
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var latestImportBatch = await importBatches.FindLatestSucceededAsync(cancellationToken);
         var analysisRun = new AnalysisRun
         {
             AnalysisDate = today,
             StartedAt = now,
             Trigger = "Daily",
+            ImportBatch = latestImportBatch,
             Succeeded = false,
             CreatedAt = now
         };
@@ -103,6 +106,10 @@ public sealed class ReportService(
             analysisRun.ErrorMessage = ex.Message;
             try
             {
+                // If report generation fails after some analysis rows or price snapshots have been added,
+                // those partial rows may also be saved with the failed AnalysisRun.
+                // This is intentional: partial results are useful for diagnostics and should be interpreted
+                // together with AnalysisRun.Succeeded == false.
                 await unitOfWork.SaveChangesAsync(cancellationToken);
             }
             catch

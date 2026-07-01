@@ -32,6 +32,7 @@ public interface IHoldingSnapshotRepository
 public interface IImportBatchRepository
 {
     void Add(ImportBatch importBatch);
+    Task<ImportBatch?> FindLatestSucceededAsync(CancellationToken cancellationToken);
 }
 
 public interface IWatchlistRepository
