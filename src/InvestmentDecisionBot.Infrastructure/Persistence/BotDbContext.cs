@@ -1,10 +1,9 @@
-using InvestmentDecisionBot.Application.Abstractions;
 using InvestmentDecisionBot.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 
 namespace InvestmentDecisionBot.Infrastructure.Persistence;
 
-public sealed class BotDbContext(DbContextOptions<BotDbContext> options) : DbContext(options), IBotDbContext
+public sealed class BotDbContext(DbContextOptions<BotDbContext> options) : DbContext(options)
 {
     public DbSet<Security> Securities => Set<Security>();
     public DbSet<Holding> Holdings => Set<Holding>();

@@ -2,11 +2,18 @@ using InvestmentDecisionBot.Application.Abstractions;
 using InvestmentDecisionBot.Application.DTOs;
 using InvestmentDecisionBot.Domain.Entities;
 using InvestmentDecisionBot.Domain.Enums;
-using Microsoft.EntityFrameworkCore;
 
 namespace InvestmentDecisionBot.Application.Importing;
 
-public sealed class ImportService(ISbiCsvParser parser, IBotDbContext db, ISystemLogService logs) : IImportService
+public sealed class ImportService(
+    ISbiCsvParser parser,
+    ISecurityRepository securities,
+    IHoldingRepository holdings,
+    IHoldingSnapshotRepository holdingSnapshots,
+    IWatchlistRepository watchlist,
+    ISoldEventRepository soldEvents,
+    IUnitOfWork unitOfWork,
+    ISystemLogService logs) : IImportService
 {
     public async Task<SbiImportResult> ImportSbiCsvAsync(Stream csvStream, string? fileName, CancellationToken cancellationToken)
     {
@@ -41,9 +48,8 @@ public sealed class ImportService(ISbiCsvParser parser, IBotDbContext db, ISyste
         }
 
         var symbols = supportedHoldings.Select(h => h.Symbol).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var existingSecurities = await db.Securities
-            .Where(s => s.SecurityType == SecurityType.Stock && symbols.Contains(s.Symbol))
-            .ToDictionaryAsync(s => s.Symbol, StringComparer.OrdinalIgnoreCase, cancellationToken);
+        var existingSecurities = (await securities.FindBySymbolsAsync(SecurityType.Stock, symbols, cancellationToken))
+            .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase);
 
         var created = 0;
         var updated = 0;
@@ -63,7 +69,7 @@ public sealed class ImportService(ISbiCsvParser parser, IBotDbContext db, ISyste
                     CreatedAt = now,
                     UpdatedAt = now
                 };
-                db.Securities.Add(security);
+                securities.Add(security);
                 existingSecurities[symbol] = security;
                 created++;
             }
@@ -73,32 +79,29 @@ public sealed class ImportService(ISbiCsvParser parser, IBotDbContext db, ISyste
                 security.UpdatedAt = now;
             }
 
-            var holding = await db.Holdings
-                .Include(h => h.Security)
-                .FirstOrDefaultAsync(h => h.Security.Symbol == symbol && h.Security.SecurityType == SecurityType.Stock, cancellationToken);
+            var holding = await holdings.FindByStockSymbolAsync(symbol, cancellationToken);
 
             if (holding is null)
             {
                 holding = new Holding { Security = security, CreatedAt = now };
-                db.Holdings.Add(holding);
+                holdings.Add(holding);
             }
             else
             {
                 updated++;
             }
 
-            holding.Quantity = imported.Quantity;
-            holding.PendingSellQuantity = imported.PendingSellQuantity;
-            holding.AverageAcquisitionPrice = imported.AverageAcquisitionPrice;
-            holding.AcquisitionAmount = imported.AcquisitionAmount;
-            holding.ImportedCurrentPrice = imported.ImportedCurrentPrice;
-            holding.ImportedMarketValue = imported.ImportedMarketValue;
-            holding.ImportedUnrealizedProfitLoss = imported.ImportedUnrealizedProfitLoss;
-            holding.ImportedAt = now;
-            holding.IsActive = true;
-            holding.UpdatedAt = now;
+            holding.UpdateFromImportedData(
+                imported.Quantity,
+                imported.PendingSellQuantity,
+                imported.AverageAcquisitionPrice,
+                imported.AcquisitionAmount,
+                imported.ImportedCurrentPrice,
+                imported.ImportedMarketValue,
+                imported.ImportedUnrealizedProfitLoss,
+                now);
 
-            db.HoldingSnapshots.Add(new HoldingSnapshot
+            holdingSnapshots.Add(new HoldingSnapshot
             {
                 Security = security,
                 Quantity = imported.Quantity,
@@ -114,19 +117,18 @@ public sealed class ImportService(ISbiCsvParser parser, IBotDbContext db, ISyste
             });
         }
 
-        var activeHoldings = await db.Holdings.Include(h => h.Security)
-            .Where(h => h.IsActive && h.Security.SecurityType == SecurityType.Stock)
-            .ToListAsync(cancellationToken);
+        var activeHoldings = (await holdings.ListActiveWithSecurityAsync(cancellationToken))
+            .Where(holding => holding.Security.SecurityType == SecurityType.Stock)
+            .ToList();
 
         var soldCount = 0;
         var watchAdded = 0;
         foreach (var holding in activeHoldings.Where(h => !symbols.Contains(h.Security.Symbol)))
         {
-            holding.IsActive = false;
-            holding.UpdatedAt = now;
+            holding.MarkAsSold(now);
             soldCount++;
 
-            db.SoldEvents.Add(new SoldEvent
+            soldEvents.Add(new SoldEvent
             {
                 Security = holding.Security,
                 DetectedAt = now,
@@ -138,11 +140,10 @@ public sealed class ImportService(ISbiCsvParser parser, IBotDbContext db, ISyste
                 CreatedAt = now
             });
 
-            var existingWatch = await db.WatchlistItems
-                .FirstOrDefaultAsync(w => w.SecurityId == holding.SecurityId && w.IsActive, cancellationToken);
+            var existingWatch = await watchlist.FindActiveBySecurityIdAsync(holding.SecurityId, cancellationToken);
             if (existingWatch is null)
             {
-                db.WatchlistItems.Add(new WatchlistItem
+                watchlist.Add(new WatchlistItem
                 {
                     Security = holding.Security,
                     Source = WatchlistSource.SoldAutomatically,
@@ -155,7 +156,7 @@ public sealed class ImportService(ISbiCsvParser parser, IBotDbContext db, ISyste
             }
         }
 
-        await db.SaveChangesAsync(cancellationToken);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
         var message = skippedUnsupported == 0
             ? "CSV取り込みが完了しました。"
             : $"CSV取り込みが完了しました。対象外コードを{skippedUnsupported}件スキップしました。";

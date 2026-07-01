@@ -16,4 +16,13 @@ public sealed class Security
     public SecurityType SecurityType { get; set; } = SecurityType.Stock;
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+
+    public bool IsJapaneseStock()
+    {
+        return SecurityType == SecurityType.Stock &&
+               Symbol.Length == 4 &&
+               Symbol.All(char.IsDigit) &&
+               (string.IsNullOrWhiteSpace(Country) || string.Equals(Country, "JP", StringComparison.OrdinalIgnoreCase)) &&
+               (string.IsNullOrWhiteSpace(Currency) || string.Equals(Currency, "JPY", StringComparison.OrdinalIgnoreCase));
+    }
 }

@@ -3,12 +3,17 @@ using InvestmentDecisionBot.Application.Abstractions;
 using InvestmentDecisionBot.Application.DTOs;
 using InvestmentDecisionBot.Domain.Entities;
 using InvestmentDecisionBot.Domain.Enums;
-using Microsoft.EntityFrameworkCore;
 
 namespace InvestmentDecisionBot.Application.Reporting;
 
 public sealed class ReportService(
-    IBotDbContext db,
+    IHoldingRepository holdings,
+    IWatchlistRepository watchlist,
+    IMarketPriceSnapshotRepository marketPriceSnapshots,
+    IExternalApiCacheRepository externalApiCache,
+    IAnalysisResultRepository analysisResults,
+    IDailyReportRepository dailyReports,
+    IUnitOfWork unitOfWork,
     IScoreCalculator scoreCalculator,
     IBotDecisionResolver decisionResolver,
     IMarketDataProvider marketData,
@@ -21,27 +26,27 @@ public sealed class ReportService(
     {
         var now = DateTimeOffset.UtcNow;
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        var holdings = (await db.Holdings.Include(h => h.Security).Where(h => h.IsActive).OrderBy(h => h.Security.Symbol).ToListAsync(cancellationToken))
-            .Where(h => IsJapaneseStock(h.Security))
+        var activeHoldings = (await holdings.ListActiveWithSecurityAsync(cancellationToken))
+            .Where(h => h.Security.IsJapaneseStock())
             .ToList();
-        var watchlist = (await db.WatchlistItems.Include(w => w.Security).Where(w => w.IsActive).OrderBy(w => w.Security.Symbol).ToListAsync(cancellationToken))
-            .Where(w => IsJapaneseStock(w.Security))
+        var activeWatchlist = (await watchlist.ListActiveWithSecurityAsync(cancellationToken))
+            .Where(w => w.Security.IsJapaneseStock())
             .ToList();
-        var holdingIds = holdings.Select(h => h.SecurityId).ToHashSet();
+        var holdingIds = activeHoldings.Select(h => h.SecurityId).ToHashSet();
 
         var analyses = new List<(AnalysisInput Input, ScoreResult Score, DecisionResult Decision)>();
-        var totalPortfolioMarketValue = holdings
+        var totalPortfolioMarketValue = activeHoldings
             .Select(holding => holding.ImportedMarketValue ?? holding.ImportedCurrentPrice * holding.Quantity)
             .Where(value => value is > 0m)
             .Sum(value => value!.Value);
 
-        foreach (var holding in holdings)
+        foreach (var holding in activeHoldings)
         {
             var input = await BuildHoldingInputAsync(holding, totalPortfolioMarketValue, cancellationToken);
             analyses.Add(await AnalyzeAsync(input, cancellationToken));
         }
 
-        foreach (var item in watchlist.Where(w => !holdingIds.Contains(w.SecurityId)))
+        foreach (var item in activeWatchlist.Where(w => !holdingIds.Contains(w.SecurityId)))
         {
             var input = await BuildWatchlistInputAsync(item, cancellationToken);
             analyses.Add(await AnalyzeAsync(input, cancellationToken));
@@ -56,7 +61,7 @@ public sealed class ReportService(
             PostedToDiscord = false,
             CreatedAt = now
         };
-        db.DailyReports.Add(dailyReport);
+        dailyReports.Add(dailyReport);
 
         DiscordPostResult? postResult = null;
         if (postToDiscord)
@@ -71,7 +76,7 @@ public sealed class ReportService(
             }
         }
 
-        await db.SaveChangesAsync(cancellationToken);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
         return new ReportResult(postResult?.Succeeded ?? true, content, analyses.Count, postResult?.MessageId, postResult?.ErrorMessage);
     }
 
@@ -209,28 +214,11 @@ public sealed class ReportService(
     }
 
     private async Task<bool> HasSuccessfulNewsFetchAsync(Security security, CancellationToken cancellationToken) =>
-        await db.ExternalApiCacheEntries.AnyAsync(cache =>
-            cache.Provider == "Gdelt" &&
-            cache.Function == "ArticleList" &&
-            cache.CacheKey == security.Symbol &&
-            cache.Succeeded,
-            cancellationToken);
+        await externalApiCache.HasSuccessfulNewsFetchAsync(security.Symbol, cancellationToken);
 
     private async Task<MarketPriceResult> FetchLatestPriceAsync(Security security, CancellationToken cancellationToken)
     {
-        var today = new DateTimeOffset(DateTimeOffset.UtcNow.Date, TimeSpan.Zero);
-        var tomorrow = today.AddDays(1);
-        var reusableSnapshots = await db.MarketPriceSnapshots
-            .Where(snapshot =>
-                snapshot.SecurityId == security.Id &&
-                snapshot.Price != null &&
-                !snapshot.UsedFallback)
-            .ToListAsync(cancellationToken);
-        var cached = reusableSnapshots
-            .Where(snapshot => snapshot.FetchedAt >= today && snapshot.FetchedAt < tomorrow)
-            .OrderByDescending(snapshot => snapshot.FetchedAt)
-            .FirstOrDefault();
-
+        var cached = await marketPriceSnapshots.FindReusableTodayAsync(security.Id, cancellationToken);
         if (cached is not null)
         {
             return new MarketPriceResult(cached.Price, cached.Currency, false, cached.IsStale, null);
@@ -242,18 +230,12 @@ public sealed class ReportService(
             return result;
         }
 
-        reusableSnapshots = await db.MarketPriceSnapshots
-            .Where(snapshot =>
-                snapshot.SecurityId == security.Id &&
-                snapshot.Price != null &&
-                !snapshot.UsedFallback)
-            .ToListAsync(cancellationToken);
-        if (reusableSnapshots.Any(snapshot => snapshot.FetchedAt >= today && snapshot.FetchedAt < tomorrow))
+        if (await marketPriceSnapshots.HasReusableTodayAsync(security.Id, cancellationToken))
         {
             return result;
         }
 
-        db.MarketPriceSnapshots.Add(new MarketPriceSnapshot
+        marketPriceSnapshots.Add(new MarketPriceSnapshot
         {
             SecurityId = security.Id,
             Price = result.Price,
@@ -293,7 +275,7 @@ public sealed class ReportService(
             DecisionConflict = false,
             CreatedAt = DateTimeOffset.UtcNow
         };
-        db.AnalysisResults.Add(analysis);
+        analysisResults.Add(analysis);
         await Task.CompletedTask;
 
         return (input, score, decision);
@@ -331,13 +313,6 @@ public sealed class ReportService(
 
         return string.Join(" ", details);
     }
-
-    private static bool IsJapaneseStock(Security security) =>
-        security.SecurityType == SecurityType.Stock &&
-        security.Symbol.Length == 4 &&
-        security.Symbol.All(char.IsDigit) &&
-        (string.IsNullOrWhiteSpace(security.Country) || string.Equals(security.Country, "JP", StringComparison.OrdinalIgnoreCase)) &&
-        (string.IsNullOrWhiteSpace(security.Currency) || string.Equals(security.Currency, "JPY", StringComparison.OrdinalIgnoreCase));
 
     private static bool IsImportant(BotDecision decision) =>
         decision is BotDecision.TakeProfit or BotDecision.PartialTakeProfit or BotDecision.StopLoss or BotDecision.PartialStopLoss or BotDecision.NewBuy;

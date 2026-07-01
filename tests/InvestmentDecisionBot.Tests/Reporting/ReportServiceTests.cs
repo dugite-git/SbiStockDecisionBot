@@ -29,7 +29,7 @@ public sealed class ReportServiceTests
         await db.Context.SaveChangesAsync();
 
         var marketData = new FakeMarketDataProvider();
-        var service = new ReportService(db.Context, new ScoreCalculator(), new BotDecisionResolver(), marketData, marketData, new FakeFinancialDataProvider(), new FakeDiscordPublisher(false), new NoopSystemLogService());
+        var service = TestServices.CreateReportService(db.Context, marketData, marketData, publisher: new FakeDiscordPublisher(false));
         var report = await service.GenerateDailyReportAsync(postToDiscord: true, CancellationToken.None);
 
         Assert.False(report.Succeeded);
@@ -61,7 +61,7 @@ public sealed class ReportServiceTests
         await db.Context.SaveChangesAsync();
 
         var marketData = new FakeMarketDataProvider(3000m);
-        var service = new ReportService(db.Context, new ScoreCalculator(), new BotDecisionResolver(), marketData, marketData, new FakeFinancialDataProvider(), new FakeDiscordPublisher(true), new NoopSystemLogService());
+        var service = TestServices.CreateReportService(db.Context, marketData, marketData);
         var report = await service.GenerateDailyReportAsync(postToDiscord: false, CancellationToken.None);
 
         Assert.True(report.Succeeded);
@@ -105,7 +105,7 @@ public sealed class ReportServiceTests
         await db.Context.SaveChangesAsync();
 
         var marketData = new FakeMarketDataProvider(9999m);
-        var service = new ReportService(db.Context, new ScoreCalculator(), new BotDecisionResolver(), marketData, marketData, new FakeFinancialDataProvider(), new FakeDiscordPublisher(true), new NoopSystemLogService());
+        var service = TestServices.CreateReportService(db.Context, marketData, marketData);
         var report = await service.GenerateDailyReportAsync(postToDiscord: false, CancellationToken.None);
 
         Assert.True(report.Succeeded);
@@ -151,7 +151,7 @@ public sealed class ReportServiceTests
             .ToList();
         var financial = new FinancialSnapshotData(DateOnly.FromDateTime(DateTime.UtcNow.Date), 1000m, 120m, 110m, 80m, 50m, 500m, 2000m, 900m, 0.45m);
         var marketData = new FakeMarketDataProvider(110m) { DailyPrices = dailyPrices };
-        var service = new ReportService(db.Context, new ScoreCalculator(), new BotDecisionResolver(), marketData, marketData, new FakeFinancialDataProvider(financial), new FakeDiscordPublisher(true), new NoopSystemLogService());
+        var service = TestServices.CreateReportService(db.Context, marketData, marketData, new FakeFinancialDataProvider(financial));
 
         await service.GenerateDailyReportAsync(postToDiscord: false, CancellationToken.None);
 
@@ -190,7 +190,7 @@ public sealed class ReportServiceTests
         await db.Context.SaveChangesAsync();
 
         var marketData = new FakeMarketDataProvider(3000m);
-        var service = new ReportService(db.Context, new ScoreCalculator(), new BotDecisionResolver(), marketData, marketData, new FakeFinancialDataProvider(), new FakeDiscordPublisher(true), new NoopSystemLogService());
+        var service = TestServices.CreateReportService(db.Context, marketData, marketData);
         var report = await service.GenerateDailyReportAsync(postToDiscord: false, CancellationToken.None);
 
         Assert.True(report.Succeeded);
@@ -222,7 +222,7 @@ public sealed class ReportServiceTests
         await db.Context.SaveChangesAsync();
 
         var marketData = new FakeMarketDataProvider(3000m);
-        var service = new ReportService(db.Context, new ScoreCalculator(), new BotDecisionResolver(), marketData, marketData, new FakeFinancialDataProvider(), new FakeDiscordPublisher(true), new NoopSystemLogService());
+        var service = TestServices.CreateReportService(db.Context, marketData, marketData);
         var report = await service.GenerateDailyReportAsync(postToDiscord: false, CancellationToken.None);
 
         Assert.True(report.Succeeded);

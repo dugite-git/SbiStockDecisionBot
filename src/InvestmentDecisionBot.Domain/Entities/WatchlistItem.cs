@@ -13,4 +13,11 @@ public sealed class WatchlistItem
     public DateTimeOffset? RemovedAt { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+
+    public void Deactivate(DateTimeOffset now)
+    {
+        IsActive = false;
+        RemovedAt = now;
+        UpdatedAt = now;
+    }
 }

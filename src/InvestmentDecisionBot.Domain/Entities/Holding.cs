@@ -16,4 +16,32 @@ public sealed class Holding
     public bool IsActive { get; set; } = true;
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+
+    public void UpdateFromImportedData(
+        decimal quantity,
+        decimal? pendingSellQuantity,
+        decimal averageAcquisitionPrice,
+        decimal acquisitionAmount,
+        decimal? importedCurrentPrice,
+        decimal? importedMarketValue,
+        decimal? importedUnrealizedProfitLoss,
+        DateTimeOffset importedAt)
+    {
+        Quantity = quantity;
+        PendingSellQuantity = pendingSellQuantity;
+        AverageAcquisitionPrice = averageAcquisitionPrice;
+        AcquisitionAmount = acquisitionAmount;
+        ImportedCurrentPrice = importedCurrentPrice;
+        ImportedMarketValue = importedMarketValue;
+        ImportedUnrealizedProfitLoss = importedUnrealizedProfitLoss;
+        ImportedAt = importedAt;
+        IsActive = true;
+        UpdatedAt = importedAt;
+    }
+
+    public void MarkAsSold(DateTimeOffset soldAt)
+    {
+        IsActive = false;
+        UpdatedAt = soldAt;
+    }
 }

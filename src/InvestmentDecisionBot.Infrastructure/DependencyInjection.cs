@@ -1,6 +1,7 @@
 using InvestmentDecisionBot.Application.Abstractions;
 using InvestmentDecisionBot.Infrastructure.Csv;
 using InvestmentDecisionBot.Infrastructure.Persistence;
+using InvestmentDecisionBot.Infrastructure.Persistence.Repositories;
 using InvestmentDecisionBot.Infrastructure.Providers;
 using InvestmentDecisionBot.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
@@ -41,7 +42,16 @@ public static class DependencyInjection
             services.AddDbContext<BotDbContext>(options => options.UseSqlite($"Data Source={databasePath}"));
         }
 
-        services.AddScoped<IBotDbContext>(provider => provider.GetRequiredService<BotDbContext>());
+        services.AddScoped<IUnitOfWork, EfUnitOfWork>();
+        services.AddScoped<ISecurityRepository, EfSecurityRepository>();
+        services.AddScoped<IHoldingRepository, EfHoldingRepository>();
+        services.AddScoped<IHoldingSnapshotRepository, EfHoldingSnapshotRepository>();
+        services.AddScoped<IWatchlistRepository, EfWatchlistRepository>();
+        services.AddScoped<ISoldEventRepository, EfSoldEventRepository>();
+        services.AddScoped<IMarketPriceSnapshotRepository, EfMarketPriceSnapshotRepository>();
+        services.AddScoped<IExternalApiCacheRepository, EfExternalApiCacheRepository>();
+        services.AddScoped<IAnalysisResultRepository, EfAnalysisResultRepository>();
+        services.AddScoped<IDailyReportRepository, EfDailyReportRepository>();
         services.AddScoped<ISbiCsvParser, SbiCsvParser>();
         services.AddScoped<ISystemLogService, SystemLogService>();
         services.AddHttpClient("ExternalMarketData", client =>

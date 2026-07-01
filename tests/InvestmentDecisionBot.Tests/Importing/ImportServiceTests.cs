@@ -1,6 +1,4 @@
 using System.Text;
-using InvestmentDecisionBot.Application.Importing;
-using InvestmentDecisionBot.Infrastructure.Csv;
 using Microsoft.EntityFrameworkCore;
 
 namespace InvestmentDecisionBot.Tests.Importing;
@@ -11,7 +9,7 @@ public sealed class ImportServiceTests
     public async Task ImportsHoldingsAndDetectsSoldSymbols()
     {
         using var db = new TestDb();
-        var service = new ImportService(new SbiCsvParser(), db.Context, new NoopSystemLogService());
+        var service = TestServices.CreateImportService(db.Context);
 
         var first = await service.ImportSbiCsvAsync(StreamFrom("""
 銘柄コード,銘柄名称,保有株数,売却注文中,取得単価,現在値,取得金額,評価額,評価損益
@@ -38,7 +36,7 @@ NVDA,NVIDIA,1,0,100,120,100,120,+20
     public async Task DoesNotUpdateDatabaseWhenCsvIsInvalid()
     {
         using var db = new TestDb();
-        var service = new ImportService(new SbiCsvParser(), db.Context, new NoopSystemLogService());
+        var service = TestServices.CreateImportService(db.Context);
 
         var result = await service.ImportSbiCsvAsync(StreamFrom("bad,csv\n1,2"), "bad.csv", CancellationToken.None);
 

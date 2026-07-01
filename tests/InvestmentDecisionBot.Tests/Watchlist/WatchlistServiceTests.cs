@@ -1,4 +1,3 @@
-using InvestmentDecisionBot.Application.Watchlist;
 using InvestmentDecisionBot.Domain.Entities;
 using InvestmentDecisionBot.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
@@ -11,7 +10,7 @@ public sealed class WatchlistServiceTests
     public async Task AddsPreventsDuplicatesAndRemovesWatchlistItems()
     {
         using var db = new TestDb();
-        var service = new WatchlistService(db.Context);
+        var service = TestServices.CreateWatchlistService(db.Context);
 
         var add = await service.AddAsync("7203", CancellationToken.None);
         var duplicate = await service.AddAsync("7203", CancellationToken.None);
@@ -34,7 +33,7 @@ public sealed class WatchlistServiceTests
     public async Task RejectsNonJapaneseStockSymbols()
     {
         using var db = new TestDb();
-        var service = new WatchlistService(db.Context);
+        var service = TestServices.CreateWatchlistService(db.Context);
 
         var result = await service.AddAsync("NVDA", CancellationToken.None);
 
@@ -51,7 +50,7 @@ public sealed class WatchlistServiceTests
         db.Context.Holdings.Add(new Holding { Security = security, Quantity = 100, AverageAcquisitionPrice = 1, AcquisitionAmount = 100, IsActive = true });
         await db.Context.SaveChangesAsync();
 
-        var service = new WatchlistService(db.Context);
+        var service = TestServices.CreateWatchlistService(db.Context);
         await service.AddAsync("7203", CancellationToken.None);
         var list = await service.ListAsync(CancellationToken.None);
         await service.RemoveAsync("7203", CancellationToken.None);
@@ -88,7 +87,7 @@ public sealed class WatchlistServiceTests
             new WatchlistItem { Security = watched, Source = WatchlistSource.Manual, IsActive = true });
         await db.Context.SaveChangesAsync();
 
-        var service = new WatchlistService(db.Context);
+        var service = TestServices.CreateWatchlistService(db.Context);
 
         var targets = await service.ListTargetsAsync(CancellationToken.None);
 
